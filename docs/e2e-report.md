@@ -1,0 +1,185 @@
+# E2E report — 2026-09-18
+
+Commit: `7083819` plus the Phase 6 changes committed with this report (`scripts/e2e.sh`, `docs/`, README, and a
+one-line gateway option in `src/Gateway/Program.cs`).
+Machine: macOS 27.0 (arm64), OrbStack with Docker Engine 29.4.0 (VM: 2 CPUs, 11.7 GiB), Docker Compose v5.1.2,
+`/bin/bash` 3.2.57, jq 1.7.1, curl 8.7.1.
+Cold start to healthy: **1:40** (build without layer cache 67 s + `scripts/up.sh` 33 s on fresh volumes).
+
+## Fresh-clone test (phase-6 §3)
+
+This machine already runs the stack (compose project `sor-poc`). So the fresh clone ran under its own project name
+and ports, which gives new containers and empty volumes, so all four data stores seed from scratch:
+
+```bash
+git clone <repo> sor-fresh && cd sor-fresh      # + the uncommitted Phase 6 changes applied as a patch
+export COMPOSE_PROJECT_NAME=sor-fresh GATEWAY_PORT=5051 UI_PORT=4201
+docker compose build --no-cache                 # timing only: forces a cold image build
+scripts/up.sh                                   # the single command
+scripts/e2e.sh
+```
+
+| Run | Code | Image build (`--no-cache`) | `scripts/up.sh` to all healthy | Total | e2e |
+|---|---|---|---|---|---|
+| 1 | `7083819` + `scripts/e2e.sh` (20 scenarios) | 99 s | 28 s | 2:07 | 20/20 |
+| 2 | `7083819` + all Phase 6 changes | 67 s | 33 s | **1:40** | **21/21** |
+
+- Pass: every service was healthy well within 5 minutes, and nothing was run by hand between `up.sh` and `e2e.sh`.
+- `http://localhost:4201/tokens.json` (served by the UI's Nginx) listed the five users: alice, bob and carol in
+  TenantA; dave and erin in TenantB, each with the services in `contracts/tokens.json.md`. The user switch itself was
+  checked in the browser on the main stack (below).
+- Not measured: pulling base images. `--no-cache` disables the layer cache, but the base images (.NET SDK and
+  runtime, Node, Nginx, Postgres, Mongo, Azurite) were already on this machine. A machine that has never pulled
+  them also has to pull them: about 2.8 GB unpacked on disk here (the .NET SDK 974 MB and mongo 830 MB are most
+  of it). The compressed download is smaller.
+- Both scratch stacks were removed afterwards (`docker compose down -v --rmi local`).
+
+## Scripted scenarios
+
+`scripts/e2e.sh` output, fresh clone, run 2:
+
+```text
+e2e: gateway http://localhost:5051/graphql, ui http://localhost:4201, subgraph timeout 5s
+PASS alice_full_timeline
+PASS alice_counts_in_seed_range  (patch 5, vulnerability 14, install 20)
+PASS bob_partial_access
+PASS carol_single_service
+PASS dave_cross_tenant_null_no_error
+PASS dave_own_tenant_ok
+PASS erin_patch_only
+PASS unauthenticated_401  (no token and a tampered token)
+PASS patch_stopped_degrades_only_patch  (code: none)
+PASS patch_stopped_is_fast  (0.014821s)
+PASS patch_restored
+PASS patch_paused_times_out_cleanly  (5.013595s)
+PASS patch_unpaused
+PASS vulnerability_stopped  (degraded, then restored)
+PASS software_install_stopped  (degraded, then restored)
+PASS bob_with_software_install_down  (code: none)
+PASS device_directory_down_fails_whole_query  (HTTP 200 while down, full timeline after restore)
+PASS search_scoped_to_tenant
+PASS lookup_hidden_on_gateway  (Query fields: cves, device, devices, patches; deviceById -> HTTP 400)
+PASS since_until_pushdown  (2026-03-05T00:00:00Z .. 2026-08-02T00:00:00Z: patchEvents 3, vulnerabilityEvents 9, installEvents 8)
+PASS query_plan_fans_out  (DeviceDirectory 2 ms, Patch 3 ms, SoftwareInstall 3 ms, Vulnerability 3 ms; total 6 ms)
+e2e: 21/21 passed in 52s
+```
+
+The same 21/21 result (52 s) on the long-running `sor-poc` stack, which the script left fully healthy.
+
+Checks on the script itself:
+
+- **Failure path.** With the expected timeout forced wrong (`SUBGRAPH_TIMEOUT_SECONDS=2` in the shell, gateway
+  still at 5 s), the run printed `FAIL patch_paused_times_out_cleanly` along with the response. It exited 1,
+  and the EXIT trap unpaused `patch`, which came back healthy.
+- **No gateway.** Pointing at a port with no gateway fails scenario 1 with `HTTP 000` and exits 1. With no UI,
+  the preflight exits 2.
+- **Assertion helpers.** `full`, `ok`, `down`, `denied_at` and the plan filter were each evaluated against the
+  recorded gateway responses in `ui/src/testing/fixtures/gateway/` and against mutated copies. Every case
+  returned the expected true or false.
+
+Several spec assertions were tightened because they passed on empty lists. See
+[version-facts §8](version-facts.md#8-deviations-append-only-all-phases), P6 rows.
+
+## Manual UI checklist
+
+Done in the in-app browser against `http://localhost:4200` (main stack, same code as run 2).
+
+- [x] User switch lists five users with tenant and services; selection persists across reload. *Alice (Tenant A)
+  TenantA patch vulnerability softwareinstall* … *Erin (Tenant B) TenantB patch*. After picking bob and
+  reloading, bob was still selected (`localStorage['sor.user'] = "bob"`).
+- [x] As alice, search `dev-000` returns TenantA devices only: "100 devices", all `dev-000xx`, header "in TenantA".
+  Opening `dev-00001` shows three sections (Patch 5, Vulnerability 14, Software Install 20) and "39 of 39 events,
+  newest first", with dates descending from Aug 25, 2026 to Sep 1, 2025. Filters:
+  - Type: Patch off gives 34 of 39, only vulnerability and install rows.
+  - Text: `log4j` gives 4 of 39, case-insensitive.
+  - Status: SUCCESS gives 17 of 39.
+  - Date range: 3/1/2026 – 6/30/2026 sends a new server query and shows Patch 2, Vulnerability 9, Install 6
+    (17 events).
+  - Reset clears all of them.
+  - Note: the typed date range was applied when focus left the field. Pressing Enter in the *To* field did not
+    apply it under browser automation, where synthetic key events may not fire the native `change` event. Check
+    Enter by hand once (see follow-ups).
+- [x] As bob, Software Install shows the no-access state: a `lock` icon, grey card, and "You don't have access to
+  Software Install data." Patch and Vulnerability render.
+- [x] As carol, only Software Install renders (20 events). Patch and Vulnerability both show the lock card.
+- [x] As dave, `dev-00001` shows "Device dev-00001 not found in TenantB" ("It does not exist in this tenant, or it
+  belongs to another one. The gateway gives the same answer either way."). Searching `dev-0` shows "3,000
+  devices", all `dev-07xxx`–`dev-09xxx`. `dev-07000` renders all three sections (6 / 17 / 8 events, TenantB).
+- [x] `scripts/demo-outage.sh patch stop`: as alice, Patch shows the unavailable banner (`warning` icon, red):
+  "Patch service is currently unavailable — patch history is not shown." plus "Gateway error: Unexpected
+  Execution Error". The other sections are intact (34 of 34). After `restore`, a refresh brings Patch back (5
+  events).
+- [x] `scripts/demo-outage.sh patch pause`: placeholder rows and a progress bar while waiting, then the same banner
+  at **5.1 s** after navigation. The page never hung.
+- [x] `scripts/demo-outage.sh device-directory stop`: the timeline shows a global error card, "Device directory
+  unavailable", with an explanation and *Retry* (not a blank page). The search page shows "Device directory
+  unavailable" with *Retry*. After `restore`, *Retry* reloads the 7,000 devices.
+- [ ] Nitro with alice's token: the tracer query works and the query plan view shows the fan-out. **Partly done.**
+  - Done: Nitro loads at `http://localhost:5050/graphql/`.
+  - Done: the data Nitro's plan view renders was checked over HTTP. Nitro sends `Fusion-Operation-Plan: 1`, and the
+    gateway now returns `extensions.fusion.operationPlan`: DeviceDirectory (no dependencies), then Patch,
+    Vulnerability and SoftwareInstall, each depending only on it. Scenario `query_plan_fans_out` asserts this.
+  - Not done: pasting the token into Nitro's connection headers and opening the plan view. A human has to
+    do that step (`docs/demo.md` "Before the audience arrives").
+
+## Deviations observed
+
+All recorded in [`docs/version-facts.md` §8](version-facts.md#8-deviations-append-only-all-phases), P6 rows:
+
+1. **Gateway: Nitro's query plan view did not work.** Fusion 16.6.6 returns the plan only when
+   `FusionRequestOptions.AllowOperationPlanRequests` is true, and it is false by default.
+   `CollectOperationPlanTelemetry` alone, which P4 set "for the query plan view in Nitro", is not enough. Phase 6
+   set the option in `src/Gateway/Program.cs` (P4-owned). Gateway unit tests pass 34/34, and a new e2e scenario
+   covers it.
+2. **Spec helpers.** The gateway port default is 5050 and is read from `.env`. The empty-array expansion is made
+   safe for bash 3.2 under `set -u`: the spec's `"${auth[@]}"` fails there with `unbound variable`.
+3. **Scenario 20 was vacuous.** `since` / `until` are ISO `DateTime`s, and `dev-00001` has no patch event in the
+   last 30 days before the seed epoch. The scenario now uses a 150-day window, compares exact id sets on all three
+   domains, checks a `+05:30` offset, and checks inclusive bounds.
+4. **Scenario 18 was vacuous.** Dave's `dev-00` search returns nothing. The scenario now uses exact tenant counts
+   (dave 3,000, alice 7,000, dave `dev-00` 0).
+5. **Scenario 16 records no error code** (the outage shape). The UI's "unavailable" is the right text.
+   **Scenario 17** answers HTTP 200 with `device: null` and one error.
+6. **The fresh clone needs `COMPOSE_PROJECT_NAME`** on a machine that already runs the stack (`name: sor-poc` is
+   fixed).
+7. **Demo step 8 said "eleven containers".** The stack has ten services: nine running, plus the `token-generator`
+   one-shot.
+
+## `⚠️` audit (phase-6 DoD)
+
+| Where | Marker | Resolution in `docs/version-facts.md` |
+|---|---|---|
+| phase-0 l.43 | Nitro CLI package id | §1: `ChilliCream.Nitro.CommandLine` 16.6.6, command `nitro` |
+| phase-0 l.141 | namespace / package for `[Lookup]` / `[Internal]` | §2: `HotChocolate.Types.Composite` in `HotChocolate.Types`; §8 P0 row |
+| phase-0 l.152 | source-schema registration call | §2: `builder.AddGraphQL("<SourceSchemaName>")`, no `.AddSourceSchema()`; §8 P0 row |
+| phase-0 l.171 | lookup attribute name | §2: `[Lookup]` |
+| phase-0 l.186 | source-schema package | §1: none needed |
+| phase-0 l.218 | `[Lookup, Internal]` not client-callable | §2 experiment 2; e2e `lookup_hidden_on_gateway` |
+| phase-0 l.254 | gateway registration | §4 snippet; §8 P0 row (`AddFileSystemConfiguration`) |
+| phase-0 l.257 | error-handling mode option | §6: `ErrorHandlingMode.Propagate` / `Null`, no `Halt` |
+| phase-0 l.286 | `IHttpClientFactory` by source-schema name | §5, including the `"fusion"` default-client pitfall |
+| phase-0 l.294 | compose flags | §3 verified invocation; §8 P0 row |
+| phase-4 l.111 | compose invocation | §3; `scripts/compose-schema.sh` (P4 rows) |
+
+No open `⚠️` is left. (`phases/00-execution-plan.md` l.9 only explains the convention.)
+
+## Known issues / follow-ups
+
+- **Plan requests are open to any authenticated caller.** `AllowOperationPlanRequests = true` exposes subgraph
+  names, internal URLs and variables. That is fine for this dev-only POC. Turn it off, or gate it per request,
+  anywhere real.
+- **Date-range Enter.** Confirm by hand that pressing Enter in the *To* date field applies the range. Blur does.
+- **CI does not run `scripts/e2e.sh`.** A job would need the compose stack (about 2 minutes cold, then about 1
+  minute of e2e) on a Docker-capable runner.
+- **Device Directory is a single point of failure**, as designed and documented. Scenario 17 pins the behaviour.
+- **`docs/demo.md` walkthrough** by someone other than its author is still to do (phase-6 DoD).
+
+## Sign-off
+
+- [x] All scripted scenarios pass on a fresh clone: 21/21, run 2 above. The spec's 20, plus
+  `query_plan_fans_out`.
+- [ ] Manual checklist complete. Everything except the Nitro token and plan-view step, which needs a human.
+- [x] `scripts/check-schema-drift.sh` passes on the Phase 6 tree ("no drift"; the gateway change does not touch
+  any schema). Re-run it on the signed commit.
+
+Signed: ________________, ____-__-__

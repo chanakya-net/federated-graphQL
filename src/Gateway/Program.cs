@@ -29,7 +29,10 @@ var gateway = builder
     .DisableIntrospection(false)
     .ModifyRequestOptions(o =>
     {
-        o.CollectOperationPlanTelemetry = true;   // query plan view in Nitro
+        // Query plan view in Nitro: it sends `Fusion-Operation-Plan: 1`, and the gateway only answers with
+        // `extensions.fusion.operationPlan` when plan requests are allowed (off by default in 16.6.6).
+        o.CollectOperationPlanTelemetry = true;
+        o.AllowOperationPlanRequests = true;
         // Standard null propagation; the extension fields are nullable, so a failure stays at the field (plan §7).
         o.DefaultErrorHandlingMode = ErrorHandlingMode.Propagate;
         o.AllowErrorHandlingModeOverride = false;

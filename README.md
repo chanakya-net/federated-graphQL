@@ -16,6 +16,8 @@ from "no access".
 | [`docs/version-facts.md`](docs/version-facts.md) | Pinned versions, verified commands, deviations. **Wins over the phase docs** |
 | [`contracts/`](contracts/README.md) | Frozen SDL, HTTP/env, token, error and seeding contracts (tag `contracts-v1`) |
 | [`spike/`](spike/README.md) | Phase 0 throwaway spike (not in the solution) |
+| [`docs/demo.md`](docs/demo.md) | 10-minute demo runbook: commands, expected screens, recovery per step |
+| [`docs/e2e-report.md`](docs/e2e-report.md) | Phase 6 end-to-end report: fresh-clone timing, scripted scenarios, manual UI checklist |
 
 ## Prerequisites
 
@@ -132,3 +134,26 @@ Stdout is the JWT only (users in `src/TokenGenerator/users.json`); `--help` list
 set -a; . ./.env; set +a; TOKEN=$(dotnet run --project src/TokenGenerator -- --user bob)   # or: --tenant TenantB --services patch,softwareinstall
 TOKEN=$(docker compose run --rm -T token-generator --user alice)                            # same, inside the stack
 ```
+
+## Validate
+
+`scripts/e2e.sh` checks the running stack end to end. Start it first with `scripts/up.sh`. The script needs
+bash 3.2+, curl, jq and Docker Compose:
+
+```bash
+scripts/e2e.sh     # about 1 min; prints PASS/FAIL per scenario, ends with "e2e: 21/21 passed"
+```
+
+It covers federation (the query plan fans out after Device Directory), each demo user's access, tenant isolation,
+401s, each domain service stopped (fails fast) and paused (bounded by the 5 s timeout), Device Directory down,
+tenant-scoped search, the hidden `deviceById` lookup and `since`/`until` pushdown. It stops at the first
+failure and exits 1 (2 if the stack is not up). It always restores every service it stopped or paused. Ports
+and the timeout come from the shell, else `.env`. Results and the manual UI checklist are in
+[`docs/e2e-report.md`](docs/e2e-report.md).
+
+## Demo
+
+Follow [`docs/demo.md`](docs/demo.md): about 10 minutes, with the stack started beforehand. It goes alice (one
+query, three backends, Nitro query plan), bob (Software Install denied by that service), dave (another
+tenant's device is simply not found), a domain service stopped and then paused, and optionally the Device
+Directory single point of failure.
