@@ -1,7 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <PackageReference Include="HotChocolate.Fusion.AspNetCore" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../Shared.Auth/Shared.Auth.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The composed archive (scripts/compose-schema.sh) next to the assembly, for `dotnet run` and the tests.
+      The Docker build context has no gateway/ inside the build stage, so the Dockerfile copies it into the
+      runtime image itself and points GATEWAY_ARCHIVE at it (phase-4 §6).
+    -->
+    <None Include="../../gateway/gateway.far" Link="gateway.far" CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" Condition="Exists('../../gateway/gateway.far')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Gateway.Tests" />
   </ItemGroup>
 
 </Project>

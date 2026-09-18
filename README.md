@@ -42,6 +42,8 @@ Vulnerability (P3B): `dotnet test tests/Vulnerability.Tests -c Release` — need
 
 SoftwareInstall (P3C): `dotnet test tests/SoftwareInstall.Tests -c Release` — needs Docker (Testcontainers `azurite:latest`, the compose image; a full 12 000-blob seed takes about 15 s); add `--filter "Category!=Integration"` for the unit tests only.
 
+Gateway (P4): `dotnet test tests/Gateway.Tests -c Release --filter "Category!=Integration"` — no Docker (the real gateway against in-process fake subgraphs); without the filter, `StackTests` also run against the compose stack (`scripts/up.sh` minus the UI, `scripts/demo-outage.sh patch stop|pause`), which takes minutes on a cold start.
+
 ## Layout
 
 ```
@@ -104,8 +106,21 @@ an empty `pgdata` volume. A healthy service is one whose `/health` answers 200 (
 | `token-generator` exits non-zero, `Permission denied` on `/tokens` | image runs as non-root and the fresh `tokens` volume is root-owned | create `/tokens` owned by `app` in the image before `USER app`, then `docker volume rm sor-poc_tokens` |
 | `wait-healthy.sh` reports `FAILED <svc> exited(N)` | the container crashed or was stopped | `docker compose logs <svc>`; `scripts/demo-outage.sh <svc> restore` after a demo |
 
+### Schema composition
+
+The gateway serves the composed archive `gateway/gateway.far`, built offline from the four exported subgraph
+schemas and copied into the gateway image as is (the image build never composes):
+
+```bash
+scripts/compose-schema.sh                  # export schemas/*.graphqls from the subgraph code, then compose gateway/gateway.far
+scripts/compose-schema.sh --no-export      # compose the committed schemas/ only
+scripts/check-schema-drift.sh              # re-export + compose; exit 1 if schemas/ or gateway.far changed (CI job schema-drift)
+```
+
 **After any subgraph schema change, run `scripts/compose-schema.sh` and commit `schemas/` and
-`gateway/gateway.far`** (added in Phase 4).
+`gateway/gateway.far`.** `schemas/<name>-settings.json` holds each source schema's name and in-compose URL; export
+keeps it as committed. The gateway overrides the URLs from `SUBGRAPH_<NAME>_URL` and refuses to start if the
+archive is missing or unreadable.
 
 ### Get a token
 
