@@ -36,6 +36,8 @@ scripts/test.sh           # everything, including [Trait("Category","Integration
 
 Device Directory (P2B): `dotnet test tests/DeviceDirectory.Tests -c Release` — needs Docker (Testcontainers `postgres:17-alpine`); add `--filter "Category!=Integration"` for the unit tests only.
 
+Patch (P3A): `dotnet test tests/Patch.Tests -c Release` — needs Docker (Testcontainers `mongo:8`); add `--filter "Category!=Integration"` for the unit tests only (no Docker).
+
 ## Layout
 
 ```

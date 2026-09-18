@@ -1,0 +1,16 @@
+{
+  "name": "Patch",
+  "transports": {
+    "http": {
+      "url": "http://patch:8080/graphql",
+      "capabilities": {
+        "batching": {
+          "variableBatching": true,
+          "requestBatching": true,
+          "aliasBatching": true
+        },
+        "onError": "propagate"
+      }
+    }
+  }
+}

@@ -1,0 +1,105 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Logging;
+using SoR.Shared.Auth;
+
+namespace SoR.Patch.Tests.Support;
+
+/// <summary>
+/// The real <c>Program</c> in-process, configured the way compose configures the container:
+/// <c>Mongo__ConnectionString</c>, <c>Mongo__Database</c> and <c>DEV_JWT_SIGNING_KEY</c>.
+/// </summary>
+public sealed class PatchApp(string connectionString, string database, string? signingKey) : WebApplicationFactory<Program>
+{
+    public LogCapture Logs { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseSetting("Mongo:ConnectionString", connectionString);
+        builder.UseSetting("Mongo:Database", database);
+        // Empty string = "not set": DevAuthState.KeyConfigured is false, /health reports auth-config unhealthy.
+        builder.UseSetting(DevAuth.SigningKeyEnv, signingKey ?? string.Empty);
+        // Logs go to the capture only (asserted on, and dumped when /health never turns 200), not the console.
+        builder.ConfigureLogging(l => l.ClearProviders().AddProvider(Logs));
+    }
+
+    /// <summary>Polls <c>/health</c> until 200. Returns every status observed, in order.</summary>
+    public async Task<IReadOnlyList<HttpStatusCode>> WaitUntilHealthyAsync(TimeSpan? timeout = null)
+    {
+        var observed = new List<HttpStatusCode>();
+        using var client = CreateClient();
+        var deadline = Stopwatch.StartNew();
+        var limit = timeout ?? TimeSpan.FromMinutes(3);   // compose start_period is 180 s
+        while (true)
+        {
+            using var response = await client.GetAsync("/health");
+            observed.Add(response.StatusCode);
+            if (response.StatusCode == HttpStatusCode.OK) return observed;
+            if (deadline.Elapsed > limit)
+            {
+                throw new TimeoutException(
+                    $"/health not 200 after {limit}; last {response.StatusCode}. Logs:\n{string.Join('\n', Logs.Messages.TakeLast(30))}");
+            }
+
+            await Task.Delay(100);
+        }
+    }
+
+    public async Task<GraphQLResponse> QueryAsync(string query, string? token, object? variables = null)
+    {
+        using var client = CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/graphql")
+        {
+            Content = JsonContent.Create(new { query, variables }),
+        };
+        if (token is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        return new GraphQLResponse(response.StatusCode, doc.RootElement.Clone(), body);
+    }
+}
+
+public sealed record GraphQLResponse(HttpStatusCode Status, JsonElement Root, string Body)
+{
+    public JsonElement Data => Root.GetProperty("data");
+
+    public bool HasErrors => Root.TryGetProperty("errors", out _);
+
+    public JsonElement Errors => Root.GetProperty("errors");
+
+    public override string ToString() => $"{(int)Status} {Body}";
+}
+
+/// <summary>Captures formatted log lines of the app under test (e.g. "seed already present").</summary>
+public sealed class LogCapture : ILoggerProvider
+{
+    private readonly ConcurrentQueue<string> _messages = new();
+
+    public IReadOnlyCollection<string> Messages => _messages;
+
+    public ILogger CreateLogger(string categoryName) => new Logger(categoryName, _messages);
+
+    public void Dispose()
+    {
+    }
+
+    private sealed class Logger(string category, ConcurrentQueue<string> sink) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (IsEnabled(logLevel)) sink.Enqueue($"{logLevel} {category}: {formatter(state, exception)}");
+        }
+    }
+}
