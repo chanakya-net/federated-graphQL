@@ -1,0 +1,147 @@
+:host {
+  display: block;
+}
+
+.summary {
+  margin: 0 0 8px;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+.empty {
+  margin: 16px 0;
+  padding: 24px;
+  text-align: center;
+  color: var(--mat-sys-on-surface-variant);
+  border: 1px dashed var(--mat-sys-outline-variant);
+  border-radius: 12px;
+}
+
+.events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.event {
+  display: grid;
+  grid-template-columns: 28px 190px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--mat-sys-surface);
+}
+.event + .event {
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.source {
+  color: var(--mat-sys-on-surface-variant);
+}
+[data-source='patch'] .source {
+  color: #1565c0;
+}
+[data-source='vulnerability'] .source {
+  color: #ad1457;
+}
+[data-source='softwareinstall'] .source {
+  color: #2e7d32;
+}
+
+.when {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  white-space: nowrap;
+}
+.title {
+  font: var(--mat-sys-body-large);
+  overflow-wrap: anywhere;
+}
+.subtitle {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  overflow-wrap: anywhere;
+}
+.chips {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.chip {
+  padding: 2px 8px;
+  border-radius: 8px;
+  font: var(--mat-sys-label-small);
+  letter-spacing: 0.04em;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  white-space: nowrap;
+}
+.status[data-status='APPLIED'],
+.status[data-status='SUCCESS'],
+.status[data-status='REMEDIATED'] {
+  background: #e3f2e5;
+  color: #1b5e20;
+}
+.status[data-status='FAILED'] {
+  background: #fde7e7;
+  color: #b3261e;
+}
+.status[data-status='PENDING'],
+.status[data-status='OPEN'] {
+  background: #fff3d6;
+  color: #7a4f00;
+}
+
+.severity {
+  background: transparent;
+  border: 1px solid currentColor;
+}
+.severity[data-severity='CRITICAL'] {
+  color: #b3261e;
+}
+.severity[data-severity='HIGH'] {
+  color: #c2410c;
+}
+.severity[data-severity='MEDIUM'] {
+  color: #8a6100;
+}
+.severity[data-severity='LOW'] {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.skeleton {
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+  padding: 8px 16px;
+}
+.skeleton-row {
+  display: grid;
+  grid-template-columns: 24px 160px 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 0;
+}
+.dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+@media (max-width: 720px) {
+  .event {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .when {
+    grid-column: 2;
+  }
+  .text,
+  .chips {
+    grid-column: 2;
+  }
+  .chips {
+    justify-content: flex-start;
+  }
+}

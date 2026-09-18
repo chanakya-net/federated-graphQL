@@ -1,0 +1,64 @@
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.back {
+  align-self: flex-start;
+}
+
+.device {
+  position: relative;
+  overflow: hidden;
+}
+.progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  color: var(--mat-sys-primary);
+}
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px 24px;
+  margin: 12px 0 0;
+}
+.fields dt {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+}
+.fields dd {
+  margin: 2px 0 0;
+  font: var(--mat-sys-body-large);
+  overflow-wrap: anywhere;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+}
+.field-skeleton {
+  display: block;
+  width: 80%;
+  margin-top: 6px;
+}
+
+.sections {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-flow: row dense;
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -44,6 +44,8 @@ SoftwareInstall (P3C): `dotnet test tests/SoftwareInstall.Tests -c Release` — 
 
 Gateway (P4): `dotnet test tests/Gateway.Tests -c Release --filter "Category!=Integration"` — no Docker (the real gateway against in-process fake subgraphs); without the filter, `StackTests` also run against the compose stack (`scripts/up.sh` minus the UI, `scripts/demo-outage.sh patch stop|pause`), which takes minutes on a cold start.
 
+UI (P5): `cd ui && npm ci && npm test` — no Docker (Vitest + jsdom, recorded gateway responses); `npm run mock` + `npm start` serves the UI on http://localhost:4300 against a mock gateway. See [`ui/README.md`](ui/README.md).
+
 ## Layout
 
 ```

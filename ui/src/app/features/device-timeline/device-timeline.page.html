@@ -1,0 +1,114 @@
+<section class="page">
+  <a mat-button routerLink="/" class="back"><mat-icon>arrow_back</mat-icon>Devices</a>
+
+  @let v = view();
+  @if (v.kind === 'transport-error') {
+    @if (v.status === 401) {
+      <app-state-card
+        heading="Not authenticated (HTTP 401)"
+        [message]="
+          'The gateway rejected the token of ' +
+          (session.selected()?.name ?? 'the selected user') +
+          '. token-generator mints new tokens whenever the stack starts; reload the users to pick them up.'
+        "
+        [detail]="v.message"
+        icon="key_off"
+      >
+        <button mat-flat-button (click)="reloadUsers()">Reload users</button>
+        <button mat-button (click)="retry()">Retry</button>
+      </app-state-card>
+    } @else {
+      <app-state-card
+        [heading]="v.status ? 'Gateway error (HTTP ' + v.status + ')' : 'Cannot reach the gateway'"
+        message="The request got no GraphQL response, so nothing about this device can be shown."
+        [detail]="v.message"
+        icon="cloud_off"
+      >
+        <button mat-flat-button (click)="retry()">Retry</button>
+      </app-state-card>
+    }
+  } @else if (v.kind === 'not-found') {
+    <app-state-card
+      tone="info"
+      icon="search_off"
+      [heading]="
+        'Device ' + id() + ' not found in ' + (session.selected()?.tenantId ?? 'this tenant')
+      "
+      message="It does not exist in this tenant, or it belongs to another one. The gateway gives the same answer either way."
+    >
+      <a mat-flat-button routerLink="/">Back to devices</a>
+    </app-state-card>
+  } @else if (v.kind === 'directory-unavailable') {
+    <app-state-card
+      heading="Device directory unavailable"
+      message="Every device comes from the Device Directory subgraph. Without it the whole query fails (by design), so no section can be shown."
+      [detail]="'Gateway error: ' + v.message"
+      icon="dns"
+    >
+      <button mat-flat-button (click)="retry()">Retry</button>
+    </app-state-card>
+  } @else {
+    @let device = v.kind === 'ok' ? v.device : null;
+    <mat-card appearance="outlined" class="device">
+      @if (!device) {
+        <mat-progress-bar mode="indeterminate" class="progress" />
+      }
+      <mat-card-header>
+        <mat-icon mat-card-avatar class="avatar" aria-hidden="true">computer</mat-icon>
+        <mat-card-title>{{ device?.hostname ?? id() }}</mat-card-title>
+        <mat-card-subtitle>{{ device ? device.os : 'Loading…' }}</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <dl class="fields">
+          <div>
+            <dt>ID</dt>
+            <dd class="mono">{{ id() }}</dd>
+          </div>
+          @if (device) {
+            <div>
+              <dt>Hostname</dt>
+              <dd>{{ device.hostname }}</dd>
+            </div>
+            <div>
+              <dt>OS</dt>
+              <dd>{{ device.os }}</dd>
+            </div>
+            <div>
+              <dt>IP address</dt>
+              <dd class="mono">{{ device.ipAddress }}</dd>
+            </div>
+            <div>
+              <dt>Last seen</dt>
+              <dd>
+                <time [attr.datetime]="device.lastSeenAt" [matTooltip]="device.lastSeenAt">{{
+                  device.lastSeenAt | date: 'medium'
+                }}</time>
+              </dd>
+            </div>
+            <div>
+              <dt>Tenant</dt>
+              <dd>{{ device.tenantId }}</dd>
+            </div>
+          } @else {
+            @for (label of ['Hostname', 'OS', 'IP address', 'Last seen', 'Tenant']; track label) {
+              <div>
+                <dt>{{ label }}</dt>
+                <dd><span class="skeleton-bar field-skeleton"></span></dd>
+              </div>
+            }
+          }
+        </dl>
+      </mat-card-content>
+    </mat-card>
+
+    <app-timeline-filters [(filter)]="filter" />
+
+    <div class="sections" aria-label="Sections">
+      @for (s of sectionList; track s.key) {
+        <app-section-banner [section]="s" [state]="sections()?.[s.key] ?? null" />
+      }
+    </div>
+
+    <app-timeline-list [events]="filtered()" [total]="events().length" [loading]="!device" />
+  }
+</section>

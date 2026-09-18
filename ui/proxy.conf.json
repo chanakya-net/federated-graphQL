@@ -1,0 +1,4 @@
+{
+  "/graphql": { "target": "http://localhost:5001", "secure": false },
+  "/tokens.json": { "target": "http://localhost:5001", "secure": false }
+}

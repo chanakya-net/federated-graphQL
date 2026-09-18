@@ -1,0 +1,89 @@
+<section class="page">
+  <header class="head">
+    <h1 class="title">Devices</h1>
+    @if (session.selected(); as user) {
+      <span class="scope">in {{ user.tenantId }}, as {{ user.name }}</span>
+    }
+  </header>
+
+  <mat-form-field appearance="outline" class="search" subscriptSizing="dynamic">
+    <mat-label>Search by id, hostname or OS</mat-label>
+    <mat-icon matPrefix>search</mat-icon>
+    <input matInput [formControl]="searchControl" autocomplete="off" spellcheck="false" />
+  </mat-form-field>
+
+  @let v = view();
+  @if (v.kind === 'error') {
+    <app-state-card [heading]="v.title" [message]="v.message" icon="cloud_off">
+      <button mat-flat-button (click)="retry()">Retry</button>
+    </app-state-card>
+  } @else {
+    <div class="table-wrap">
+      @if (v.kind === 'ok') {
+        <table mat-table [dataSource]="v.items" class="devices" aria-label="Devices">
+          <ng-container matColumnDef="id">
+            <th mat-header-cell *matHeaderCellDef>ID</th>
+            <td mat-cell *matCellDef="let d">
+              <a [routerLink]="['/devices', d.id]" class="id" (click)="$event.stopPropagation()">{{
+                d.id
+              }}</a>
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="hostname">
+            <th mat-header-cell *matHeaderCellDef>Hostname</th>
+            <td mat-cell *matCellDef="let d">{{ d.hostname }}</td>
+          </ng-container>
+          <ng-container matColumnDef="os">
+            <th mat-header-cell *matHeaderCellDef>OS</th>
+            <td mat-cell *matCellDef="let d">{{ d.os }}</td>
+          </ng-container>
+          <ng-container matColumnDef="ipAddress">
+            <th mat-header-cell *matHeaderCellDef>IP address</th>
+            <td mat-cell *matCellDef="let d" class="mono">{{ d.ipAddress }}</td>
+          </ng-container>
+          <ng-container matColumnDef="lastSeenAt">
+            <th mat-header-cell *matHeaderCellDef>Last seen</th>
+            <td mat-cell *matCellDef="let d">
+              <time [attr.datetime]="d.lastSeenAt" [matTooltip]="d.lastSeenAt">{{
+                d.lastSeenAt | date: 'medium'
+              }}</time>
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="columns"></tr>
+          <tr mat-row *matRowDef="let d; columns: columns" class="row" (click)="open(d)"></tr>
+          <tr class="mat-mdc-row" *matNoDataRow>
+            <td class="mat-mdc-cell empty" [attr.colspan]="columns.length">
+              No devices in {{ session.selected()?.tenantId }} match “{{ search() }}”.
+            </td>
+          </tr>
+        </table>
+        <div class="foot">
+          <span class="count"
+            >{{ v.totalCount | number }} device{{ v.totalCount === 1 ? '' : 's' }}</span
+          >
+          <mat-paginator
+            [length]="v.totalCount"
+            [pageSize]="pageSize"
+            [pageIndex]="pageIndex()"
+            [hidePageSize]="true"
+            [showFirstLastButtons]="true"
+            (page)="onPage($event)"
+            aria-label="Device pages"
+          />
+        </div>
+      } @else {
+        <mat-progress-bar mode="indeterminate" class="progress" />
+        <div class="skeleton" aria-busy="true" aria-label="Loading devices">
+          @for (row of skeletonRows; track row) {
+            <div class="skeleton-row">
+              @for (cell of columns; track cell) {
+                <span class="skeleton-bar"></span>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+</section>

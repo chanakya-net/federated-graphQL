@@ -1,0 +1,52 @@
+[
+  {
+    "sub": "alice",
+    "name": "Alice (Tenant A)",
+    "tenantId": "TenantA",
+    "services": [
+      "patch",
+      "vulnerability",
+      "softwareinstall"
+    ],
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzb3ItcG9jIiwiYXVkIjoic29yLXBvYyIsInN1YiI6ImFsaWNlIiwibmFtZSI6IkFsaWNlIChUZW5hbnQgQSkiLCJ0ZW5hbnRJZCI6IlRlbmFudEEiLCJzZXJ2aWNlcyI6WyJwYXRjaCIsInZ1bG5lcmFiaWxpdHkiLCJzb2Z0d2FyZWluc3RhbGwiXSwiaWF0IjoxNzg5Njg5NjAwLCJuYmYiOjE3ODk2ODk2MDAsImV4cCI6MTk0NzQ1NjAwMH0.mock-signature-not-verified"
+  },
+  {
+    "sub": "bob",
+    "name": "Bob (Tenant A)",
+    "tenantId": "TenantA",
+    "services": [
+      "patch",
+      "vulnerability"
+    ],
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzb3ItcG9jIiwiYXVkIjoic29yLXBvYyIsInN1YiI6ImJvYiIsIm5hbWUiOiJCb2IgKFRlbmFudCBBKSIsInRlbmFudElkIjoiVGVuYW50QSIsInNlcnZpY2VzIjpbInBhdGNoIiwidnVsbmVyYWJpbGl0eSJdLCJpYXQiOjE3ODk2ODk2MDAsIm5iZiI6MTc4OTY4OTYwMCwiZXhwIjoxOTQ3NDU2MDAwfQ.mock-signature-not-verified"
+  },
+  {
+    "sub": "carol",
+    "name": "Carol (Tenant A)",
+    "tenantId": "TenantA",
+    "services": [
+      "softwareinstall"
+    ],
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzb3ItcG9jIiwiYXVkIjoic29yLXBvYyIsInN1YiI6ImNhcm9sIiwibmFtZSI6IkNhcm9sIChUZW5hbnQgQSkiLCJ0ZW5hbnRJZCI6IlRlbmFudEEiLCJzZXJ2aWNlcyI6WyJzb2Z0d2FyZWluc3RhbGwiXSwiaWF0IjoxNzg5Njg5NjAwLCJuYmYiOjE3ODk2ODk2MDAsImV4cCI6MTk0NzQ1NjAwMH0.mock-signature-not-verified"
+  },
+  {
+    "sub": "dave",
+    "name": "Dave (Tenant B)",
+    "tenantId": "TenantB",
+    "services": [
+      "patch",
+      "vulnerability",
+      "softwareinstall"
+    ],
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzb3ItcG9jIiwiYXVkIjoic29yLXBvYyIsInN1YiI6ImRhdmUiLCJuYW1lIjoiRGF2ZSAoVGVuYW50IEIpIiwidGVuYW50SWQiOiJUZW5hbnRCIiwic2VydmljZXMiOlsicGF0Y2giLCJ2dWxuZXJhYmlsaXR5Iiwic29mdHdhcmVpbnN0YWxsIl0sImlhdCI6MTc4OTY4OTYwMCwibmJmIjoxNzg5Njg5NjAwLCJleHAiOjE5NDc0NTYwMDB9.mock-signature-not-verified"
+  },
+  {
+    "sub": "erin",
+    "name": "Erin (Tenant B)",
+    "tenantId": "TenantB",
+    "services": [
+      "patch"
+    ],
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzb3ItcG9jIiwiYXVkIjoic29yLXBvYyIsInN1YiI6ImVyaW4iLCJuYW1lIjoiRXJpbiAoVGVuYW50IEIpIiwidGVuYW50SWQiOiJUZW5hbnRCIiwic2VydmljZXMiOlsicGF0Y2giXSwiaWF0IjoxNzg5Njg5NjAwLCJuYmYiOjE3ODk2ODk2MDAsImV4cCI6MTk0NzQ1NjAwMH0.mock-signature-not-verified"
+  }
+]

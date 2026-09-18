@@ -1,0 +1,75 @@
+:host {
+  display: block;
+  border-radius: 12px;
+}
+
+// Banners take the full row; ok lines share it.
+:host(.no-access),
+:host(.unavailable) {
+  grid-column: 1 / -1;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container-low);
+}
+.line .icon {
+  color: var(--mat-sys-primary);
+}
+.line .name {
+  font: var(--mat-sys-title-small);
+}
+.line .count {
+  margin-left: auto;
+  color: var(--mat-sys-on-surface-variant);
+}
+.count-skeleton {
+  margin-left: auto;
+  width: 64px;
+}
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+}
+.banner .icon {
+  flex: none;
+  margin-top: 2px;
+}
+.banner .name {
+  font: var(--mat-sys-title-small);
+}
+.copy {
+  margin: 2px 0 0;
+  font: var(--mat-sys-body-large);
+}
+.detail {
+  margin: 4px 0 0;
+  font: var(--mat-sys-body-small);
+  opacity: 0.8;
+}
+
+// No access: neutral, dashed, lock. Nothing is broken; the subgraph said no.
+:host(.no-access) .banner {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+  border: 1px dashed var(--mat-sys-outline);
+}
+
+// Unavailable: the theme's error colours, solid, warning. Something is broken.
+:host(.unavailable) .banner {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+  border: 1px solid var(--mat-sys-error);
+}
+:host(.unavailable) .banner .icon {
+  color: var(--mat-sys-error);
+}
