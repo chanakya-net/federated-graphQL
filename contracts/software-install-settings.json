@@ -1,0 +1,12 @@
+{
+  "name": "SoftwareInstall",
+  "transports": {
+    "http": {
+      "url": "http://software-install:8080/graphql",
+      "capabilities": {
+        "batching": { "variableBatching": true, "requestBatching": true, "aliasBatching": true },
+        "onError": "propagate"
+      }
+    }
+  }
+}

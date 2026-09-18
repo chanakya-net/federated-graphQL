@@ -1,0 +1,49 @@
+"""
+Owned by the Patch subgraph (source schema "Patch"). Extends Device. Service name: "patch".
+"""
+schema { query: Query }
+
+type Query {
+  """
+  Internal lookup for the gateway only (not on the composite schema). Tenant-scoped, NOT behind the
+  service policy. Returns a stub Device even if this subgraph has no data for the id.
+  """
+  deviceById(id: ID!): Device @lookup @internal
+  """
+  Patch catalog. Requires services contains "patch".
+  NULLABLE on purpose, like the extension field: a denial on a non-null root field would null all of `data`.
+  """
+  patches(first: Int! = 25, offset: Int! = 0): [Patch!]
+}
+
+type Device {
+  id: ID!
+  """
+  NULLABLE on purpose (plan §4.2). Requires services contains "patch".
+  Empty list = no events; null + error = degraded or denied. Never make this non-null.
+  """
+  patchEvents(since: DateTime, until: DateTime): [PatchEvent!]
+}
+
+type PatchEvent {
+  id: ID!
+  deviceId: ID!
+  occurredAt: DateTime!
+  status: PatchStatus!
+  patch: Patch!
+}
+
+enum PatchStatus { APPLIED FAILED PENDING }
+
+type Patch {
+  id: ID!
+  kbId: String!
+  title: String!
+  severity: PatchSeverity!
+  vendor: String!
+  releasedAt: DateTime!
+}
+
+enum PatchSeverity { CRITICAL HIGH MEDIUM LOW }
+
+scalar DateTime

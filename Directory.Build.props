@@ -1,0 +1,16 @@
+<Project>
+  <!-- Solution-wide build settings (Phase 1). The spike has its own Directory.Build.props and is not affected. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>CS1591</WarningsNotAsErrors>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Matches the alpine runtime image (no ICU). Nothing in this POC needs culture data. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RootNamespace>SoR.$(MSBuildProjectName)</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

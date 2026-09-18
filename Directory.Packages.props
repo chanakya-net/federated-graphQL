@@ -1,0 +1,36 @@
+<Project>
+  <!--
+    Every package any lane needs is pinned here, in Phase 1. Hot Chocolate, JwtBearer and
+    IdentityModel versions come from docs/version-facts.md §1. Lanes may APPEND one line,
+    tagged with a trailing lane comment such as "P3A"; never change an existing version.
+  -->
+  <ItemGroup>
+    <!-- Hot Chocolate / Fusion (source-schema attributes ship in HotChocolate.Types, transitive; no extra package) -->
+    <PackageVersion Include="HotChocolate.AspNetCore" Version="16.6.6" />
+    <PackageVersion Include="HotChocolate.AspNetCore.Authorization" Version="16.6.6" />
+    <PackageVersion Include="HotChocolate.AspNetCore.CommandLine" Version="16.6.6" />
+    <PackageVersion Include="HotChocolate.Fusion.AspNetCore" Version="16.6.6" />
+    <!-- Auth -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.19.2" />
+    <!-- Data -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.12" />
+    <PackageVersion Include="MongoDB.Driver" Version="3.12.0" />
+    <PackageVersion Include="Azure.Storage.Blobs" Version="12.29.2" />
+    <!-- Seeding -->
+    <PackageVersion Include="Bogus" Version="35.6.5" />
+    <!-- Tests (no FluentAssertions: its licence changed in v8; use plain xunit asserts) -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
+    <PackageVersion Include="Testcontainers" Version="4.15.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
+    <PackageVersion Include="Testcontainers.MongoDb" Version="4.15.0" />
+    <PackageVersion Include="Testcontainers.Azurite" Version="4.15.0" />
+  </ItemGroup>
+</Project>

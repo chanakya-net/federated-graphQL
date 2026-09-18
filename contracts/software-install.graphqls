@@ -1,0 +1,39 @@
+"""
+Owned by the SoftwareInstall subgraph (source schema "SoftwareInstall"). Extends Device. Service name: "softwareinstall".
+"""
+schema { query: Query }
+
+type Query {
+  """Internal lookup for the gateway only. Tenant-scoped, NOT behind the service policy."""
+  deviceById(id: ID!): Device @lookup @internal
+}
+
+type Device {
+  id: ID!
+  """
+  NULLABLE on purpose (plan §4.2). Requires services contains "softwareinstall".
+  Empty list = no events; null + error = degraded or denied. Never make this non-null.
+  """
+  installEvents(since: DateTime, until: DateTime): [InstallEvent!]
+}
+
+type InstallEvent {
+  id: ID!
+  deviceId: ID!
+  occurredAt: DateTime!
+  action: InstallAction!
+  result: InstallResult!
+  software: Software!
+}
+
+enum InstallAction { INSTALL UNINSTALL UPGRADE }
+
+enum InstallResult { SUCCESS FAILED }
+
+type Software {
+  name: String!
+  version: String!
+  publisher: String!
+}
+
+scalar DateTime

@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: build + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore SoR.sln
+      - run: scripts/build.sh
+      - run: scripts/test.sh unit
+
+  integration:
+    name: integration tests (Testcontainers)
+    needs: build
+    runs-on: ubuntu-latest   # Docker is available on GitHub-hosted Linux runners
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: scripts/build.sh
+      - run: scripts/test.sh
+
+  schema-drift:
+    name: schema drift
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet tool restore
+      # Placeholder until Phase 4 adds scripts/check-schema-drift.sh.
+      - run: |
+          if [ -x scripts/check-schema-drift.sh ]; then
+            scripts/check-schema-drift.sh
+          else
+            echo "scripts/check-schema-drift.sh not present yet (Phase 4); skipping."
+          fi
