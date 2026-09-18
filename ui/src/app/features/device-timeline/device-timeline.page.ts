@@ -1,7 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -13,14 +12,23 @@ import { DEVICE_TIMELINE } from '../../graphql/operations';
 import { StateCardComponent } from '../../shared/state-card.component';
 import { timelineView, type TimelineSections } from '../../timeline/section-state';
 import { applyFilter, merge } from '../../timeline/timeline-merge';
-import { DEFAULT_FILTER, SECTIONS, type TimelineFilter } from '../../timeline/timeline.models';
+import {
+  DEFAULT_FILTER,
+  SECTIONS,
+  eventKey,
+  type TimelineFilter,
+} from '../../timeline/timeline.models';
+import { EventDetailComponent } from './event-detail.component';
 import { SectionBannerComponent } from './section-banner.component';
 import { TimelineFiltersComponent } from './timeline-filters.component';
 import { TimelineListComponent } from './timeline-list.component';
+import { TimelineStripComponent } from './timeline-strip.component';
 
 /**
  * One device, one query, three sections. Page-level states (loading, transport error, not found,
  * directory down) are decided first; then each section is ok / no access / unavailable on its own.
+ * The events are shown twice: as points on the horizontal strip and as a list; both select the same
+ * event, whose details appear under the strip.
  */
 @Component({
   selector: 'app-device-timeline-page',
@@ -28,13 +36,14 @@ import { TimelineListComponent } from './timeline-list.component';
     DatePipe,
     RouterLink,
     MatButtonModule,
-    MatCardModule,
     MatIconModule,
     MatProgressBarModule,
     MatTooltipModule,
     StateCardComponent,
     SectionBannerComponent,
     TimelineFiltersComponent,
+    TimelineStripComponent,
+    EventDetailComponent,
     TimelineListComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -49,6 +58,8 @@ export class DeviceTimelinePage {
 
   protected readonly sectionList = SECTIONS;
   protected readonly filter = signal<TimelineFilter>(DEFAULT_FILTER);
+  /** The selected event's key; the detail panel is empty when it is filtered out. */
+  protected readonly selectedKey = signal<string | null>(null);
   private readonly attempt = signal(0);
 
   /** Only the date range goes to the server; the other filters must not re-run the query. */
@@ -78,6 +89,10 @@ export class DeviceTimelinePage {
     return sections ? merge(sections) : [];
   });
   protected readonly filtered = computed(() => applyFilter(this.events(), this.filter()));
+  protected readonly selected = computed(() => {
+    const key = this.selectedKey();
+    return key ? (this.filtered().find((e) => eventKey(e) === key) ?? null) : null;
+  });
 
   protected retry(): void {
     this.attempt.update((n) => n + 1);

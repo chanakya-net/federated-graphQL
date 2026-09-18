@@ -52,23 +52,39 @@ import { StateCardComponent } from './shared/state-card.component';
       top: 0;
       z-index: 2;
       gap: 16px;
-      height: 72px;
-      background: var(--mat-sys-surface-container);
+      height: 64px;
+      background: color-mix(in srgb, var(--mat-sys-surface-container-lowest) 82%, transparent);
+      -webkit-backdrop-filter: blur(14px);
+      backdrop-filter: blur(14px);
       border-bottom: 1px solid var(--mat-sys-outline-variant);
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       color: inherit;
       text-decoration: none;
-      font: var(--mat-sys-title-large);
+      font: var(--mat-sys-title-medium);
+      font-weight: 600;
+      letter-spacing: -0.01em;
     }
     .brand mat-icon {
-      color: var(--mat-sys-primary);
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      font-size: 20px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--mat-sys-primary), var(--mat-sys-tertiary));
+      color: var(--mat-sys-on-primary);
     }
     .spacer {
       flex: 1;
+    }
+    @media (max-width: 600px) {
+      .brand span {
+        display: none;
+      }
     }
   `,
 })

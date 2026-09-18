@@ -1,0 +1,174 @@
+:host {
+  display: block;
+}
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.nav {
+  flex: none;
+}
+.scroller {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  padding: 4px 0 8px;
+  mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+}
+.months,
+.points {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.month {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+.month-label {
+  position: sticky;
+  left: 16px;
+  align-self: flex-start;
+  margin: 0 0 8px 16px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-small);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+// One track segment per point, so the line is continuous across months and stops at both ends.
+.point {
+  --track-y: 34px; // label 18px + gap 8px + half the dot
+  position: relative;
+  flex: none;
+  width: 116px;
+  scroll-snap-align: center;
+}
+.point::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--track-y);
+  height: 2px;
+  background: var(--mat-sys-outline-variant);
+}
+.point.first::before {
+  left: 50%;
+}
+.point.last::before {
+  right: 50%;
+}
+
+.point-button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0 0 2px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.point-button:focus-visible {
+  outline: 2px solid var(--source-color);
+  outline-offset: 2px;
+}
+.label {
+  box-sizing: border-box;
+  max-width: 100%;
+  height: 18px;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--mat-sys-label-medium);
+  color: var(--mat-sys-on-surface-variant);
+}
+.dot {
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--source-color);
+  border: 3px solid var(--mat-sys-surface-container-lowest);
+  box-shadow: 0 0 0 2px var(--source-color);
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+.when {
+  height: 18px;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  white-space: nowrap;
+}
+.point-button:hover .dot {
+  transform: scale(1.2);
+  box-shadow:
+    0 0 0 2px var(--source-color),
+    0 0 0 6px color-mix(in srgb, var(--source-color) 18%, transparent);
+}
+.point-button.selected .dot {
+  transform: scale(1.4);
+  box-shadow:
+    0 0 0 2px var(--source-color),
+    0 0 0 7px color-mix(in srgb, var(--source-color) 24%, transparent);
+}
+.point-button.selected .label {
+  color: var(--source-color);
+  font-weight: 600;
+}
+.point-button.selected .when {
+  color: var(--mat-sys-on-surface);
+  font-weight: 500;
+}
+
+.empty {
+  margin: 0;
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--mat-sys-on-surface-variant);
+  border: 1px dashed var(--mat-sys-outline-variant);
+  border-radius: 12px;
+}
+
+.skeleton {
+  gap: 24px;
+  padding: 8px 16px 12px;
+  overflow: hidden;
+}
+.skeleton-point {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 92px;
+}
+.skeleton-bar.w {
+  width: 64px;
+  height: 12px;
+}
+.skeleton-bar.d {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}

@@ -1,6 +1,6 @@
 :host {
   display: block;
-  border-radius: 12px;
+  min-width: 0;
 }
 
 // Banners take the full row; ok lines share it.
@@ -9,47 +9,54 @@
   grid-column: 1 / -1;
 }
 
-.line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--mat-sys-outline-variant);
-  background: var(--mat-sys-surface-container-low);
-}
-.line .icon {
-  color: var(--mat-sys-primary);
-}
-.line .name {
-  font: var(--mat-sys-title-small);
-}
-.line .count {
-  margin-left: auto;
-  color: var(--mat-sys-on-surface-variant);
-}
-.count-skeleton {
-  margin-left: auto;
-  width: 64px;
-}
-
+.line,
 .banner {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  padding: 14px 16px;
-  border-radius: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container-lowest);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
 }
-.banner .icon {
+.banner {
+  align-items: flex-start;
+}
+
+// The subgraph colour: a tinted square with the icon (the legend of the timeline points).
+.swatch {
   flex: none;
-  margin-top: 2px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--source-color) 14%, white);
+  color: var(--source-color);
 }
-.banner .name {
-  font: var(--mat-sys-title-small);
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.name {
+  font: var(--mat-sys-label-medium);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--mat-sys-on-surface-variant);
+}
+.count {
+  font: var(--mat-sys-title-medium);
+  font-weight: 600;
+}
+.count-skeleton {
+  width: 64px;
+  margin-top: 6px;
 }
 .copy {
   margin: 2px 0 0;
-  font: var(--mat-sys-body-large);
+  font: var(--mat-sys-body-medium);
 }
 .detail {
   margin: 4px 0 0;
@@ -59,9 +66,14 @@
 
 // No access: neutral, dashed, lock. Nothing is broken; the subgraph said no.
 :host(.no-access) .banner {
-  background: var(--mat-sys-surface-container-high);
+  background: var(--mat-sys-surface-container);
   color: var(--mat-sys-on-surface-variant);
   border: 1px dashed var(--mat-sys-outline);
+  box-shadow: none;
+}
+:host(.no-access) .swatch {
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
 }
 
 // Unavailable: the theme's error colours, solid, warning. Something is broken.
@@ -70,6 +82,7 @@
   color: var(--mat-sys-on-error-container);
   border: 1px solid var(--mat-sys-error);
 }
-:host(.unavailable) .banner .icon {
+:host(.unavailable) .swatch {
+  background: color-mix(in srgb, var(--mat-sys-error) 16%, white);
   color: var(--mat-sys-error);
 }

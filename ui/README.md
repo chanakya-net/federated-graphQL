@@ -5,6 +5,10 @@ the gateway. Each section (Patch, Vulnerability, Software Install) shows **ok**,
 neutral) or **unavailable** (warning, error colours), decided from the GraphQL response only
 (`contracts/errors.md`). The timeline query always asks for all three sections; the subgraphs deny.
 
+The events are drawn as points on one horizontal track, oldest on the left and grouped by month, each
+point in its subgraph's colour (blue patch, pink vulnerability, green install; the section cards are
+the legend). Clicking a point, or a row of the list below, shows that event's details under the track.
+
 Angular 22 (standalone, zoneless, signals), Angular Material 3, Apollo Angular 14 on Apollo Client 4.
 Exact versions: `package.json` (pinned) and `docs/version-facts.md` §1.
 
@@ -44,7 +48,8 @@ src/app/
   graphql/       the two operations, hand-written result types, Apollo default-option declaration
   timeline/      pure logic: section-state.ts (ok / no-access / unavailable, page-level states),
                  timeline-merge.ts (map, merge newest first, filter)
-  features/      user-switch, device-search (?q=&page= in the URL), device-timeline (+ banners, filters, list)
+  features/      user-switch, device-search (?q=&page= in the URL),
+                 device-timeline (+ section cards, filters, the horizontal strip, event detail, list)
   shared/        state-card (page-level error / not-found states)
 src/testing/
   fixtures/*.json          Phase 0 gateway responses (copied from tests/fixtures, spike field `notes`)

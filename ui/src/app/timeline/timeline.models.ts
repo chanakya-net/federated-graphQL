@@ -7,6 +7,8 @@ export interface TimelineEvent {
   id: string;
   source: Source;
   occurredAt: string;
+  /** Short label for the point on the timeline strip: KB id, CVE id or software name. */
+  label: string;
   title: string;
   subtitle: string;
   /** APPLIED|FAILED|PENDING (patch), OPEN|REMEDIATED (vulnerability), SUCCESS|FAILED (install). */
@@ -14,6 +16,11 @@ export interface TimelineEvent {
   /** Patch / CVE severity when present. */
   severity?: string;
   raw: unknown;
+}
+
+/** Unique across sources (ids are only unique within one subgraph). Used for tracking and selection. */
+export function eventKey(e: Pick<TimelineEvent, 'source' | 'id'>): string {
+  return `${e.source}:${e.id}`;
 }
 
 export interface TimelineFilter {
@@ -51,6 +58,8 @@ export interface SectionMeta {
   name: string;
   /** Material icon for events of this source. */
   icon: string;
+  /** The subgraph's colour: section cards (the legend), timeline points, list rows, details. */
+  color: string;
   /** Plural noun for the unavailable banner ("patch history is not shown"). */
   history: string;
 }
@@ -61,6 +70,7 @@ export const SECTIONS: readonly SectionMeta[] = [
     source: 'patch',
     name: 'Patch',
     icon: 'system_update_alt',
+    color: '#1d4ed8',
     history: 'patch',
   },
   {
@@ -68,6 +78,7 @@ export const SECTIONS: readonly SectionMeta[] = [
     source: 'vulnerability',
     name: 'Vulnerability',
     icon: 'bug_report',
+    color: '#be185d',
     history: 'vulnerability',
   },
   {
@@ -75,6 +86,7 @@ export const SECTIONS: readonly SectionMeta[] = [
     source: 'softwareinstall',
     name: 'Software Install',
     icon: 'apps',
+    color: '#047857',
     history: 'install',
   },
 ];

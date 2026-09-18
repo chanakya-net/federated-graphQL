@@ -1,7 +1,7 @@
 .page {
-  max-width: 1100px;
+  max-width: 1160px;
   margin: 0 auto;
-  padding: 16px 16px 48px;
+  padding: 16px 16px 56px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -10,9 +10,14 @@
   align-self: flex-start;
 }
 
-.device {
+.hero {
   position: relative;
   overflow: hidden;
+  padding: 20px 24px 22px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 40px;
 }
 .progress {
   position: absolute;
@@ -20,34 +25,62 @@
   left: 0;
   right: 0;
 }
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
 .avatar {
+  flex: none;
   display: grid;
   place-items: center;
-  font-size: 28px;
-  color: var(--mat-sys-primary);
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--mat-sys-primary), var(--mat-sys-tertiary));
+  color: var(--mat-sys-on-primary);
+  box-shadow: 0 8px 20px -10px var(--mat-sys-primary);
+}
+.avatar mat-icon {
+  font-size: 30px;
+  width: 30px;
+  height: 30px;
+}
+.identity-text {
+  min-width: 0;
+}
+.hostname {
+  margin: 0;
+  font: var(--mat-sys-headline-small);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.os {
+  margin: 2px 0 0;
+  color: var(--mat-sys-on-surface-variant);
 }
 .fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 12px 24px;
-  margin: 12px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  margin: 0;
 }
 .fields dt {
   color: var(--mat-sys-on-surface-variant);
   font: var(--mat-sys-label-medium);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 .fields dd {
   margin: 2px 0 0;
   font: var(--mat-sys-body-large);
   overflow-wrap: anywhere;
 }
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 14px;
-}
 .field-skeleton {
   display: block;
-  width: 80%;
+  width: 96px;
   margin-top: 6px;
 }
 
@@ -57,8 +90,39 @@
   grid-auto-flow: row dense;
   gap: 12px;
 }
+
+.filters {
+  padding: 14px 16px;
+}
+
+.timeline {
+  padding: 16px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.timeline-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 0 4px;
+}
+.timeline-title {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+  font-weight: 600;
+}
+.timeline-summary {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
 @media (max-width: 720px) {
   .sections {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .hero {
+    padding: 16px;
   }
 }

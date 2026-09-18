@@ -49,59 +49,49 @@
     </app-state-card>
   } @else {
     @let device = v.kind === 'ok' ? v.device : null;
-    <mat-card appearance="outlined" class="device">
+    <header class="panel hero">
       @if (!device) {
         <mat-progress-bar mode="indeterminate" class="progress" />
       }
-      <mat-card-header>
-        <mat-icon mat-card-avatar class="avatar" aria-hidden="true">computer</mat-icon>
-        <mat-card-title>{{ device?.hostname ?? id() }}</mat-card-title>
-        <mat-card-subtitle>{{ device ? device.os : 'Loading…' }}</mat-card-subtitle>
-      </mat-card-header>
-      <mat-card-content>
-        <dl class="fields">
+      <div class="identity">
+        <span class="avatar" aria-hidden="true"><mat-icon>computer</mat-icon></span>
+        <div class="identity-text">
+          <h1 class="hostname">{{ device?.hostname ?? id() }}</h1>
+          <p class="os">{{ device ? device.os : 'Loading…' }}</p>
+        </div>
+      </div>
+      <dl class="fields">
+        <div>
+          <dt>ID</dt>
+          <dd class="mono">{{ id() }}</dd>
+        </div>
+        @if (device) {
           <div>
-            <dt>ID</dt>
-            <dd class="mono">{{ id() }}</dd>
+            <dt>IP address</dt>
+            <dd class="mono">{{ device.ipAddress }}</dd>
           </div>
-          @if (device) {
+          <div>
+            <dt>Last seen</dt>
+            <dd>
+              <time [attr.datetime]="device.lastSeenAt" [matTooltip]="device.lastSeenAt">{{
+                device.lastSeenAt | date: 'medium'
+              }}</time>
+            </dd>
+          </div>
+          <div>
+            <dt>Tenant</dt>
+            <dd>{{ device.tenantId }}</dd>
+          </div>
+        } @else {
+          @for (label of ['IP address', 'Last seen', 'Tenant']; track label) {
             <div>
-              <dt>Hostname</dt>
-              <dd>{{ device.hostname }}</dd>
+              <dt>{{ label }}</dt>
+              <dd><span class="skeleton-bar field-skeleton"></span></dd>
             </div>
-            <div>
-              <dt>OS</dt>
-              <dd>{{ device.os }}</dd>
-            </div>
-            <div>
-              <dt>IP address</dt>
-              <dd class="mono">{{ device.ipAddress }}</dd>
-            </div>
-            <div>
-              <dt>Last seen</dt>
-              <dd>
-                <time [attr.datetime]="device.lastSeenAt" [matTooltip]="device.lastSeenAt">{{
-                  device.lastSeenAt | date: 'medium'
-                }}</time>
-              </dd>
-            </div>
-            <div>
-              <dt>Tenant</dt>
-              <dd>{{ device.tenantId }}</dd>
-            </div>
-          } @else {
-            @for (label of ['Hostname', 'OS', 'IP address', 'Last seen', 'Tenant']; track label) {
-              <div>
-                <dt>{{ label }}</dt>
-                <dd><span class="skeleton-bar field-skeleton"></span></dd>
-              </div>
-            }
           }
-        </dl>
-      </mat-card-content>
-    </mat-card>
-
-    <app-timeline-filters [(filter)]="filter" />
+        }
+      </dl>
+    </header>
 
     <div class="sections" aria-label="Sections">
       @for (s of sectionList; track s.key) {
@@ -109,6 +99,36 @@
       }
     </div>
 
-    <app-timeline-list [events]="filtered()" [total]="events().length" [loading]="!device" />
+    <div class="panel filters">
+      <app-timeline-filters [(filter)]="filter" />
+    </div>
+
+    <section class="panel timeline" aria-label="Timeline">
+      <header class="timeline-head">
+        <h2 class="timeline-title">Timeline</h2>
+        @if (device) {
+          <span class="timeline-summary">
+            {{ filtered().length }} of {{ events().length }} event{{
+              events().length === 1 ? '' : 's'
+            }}, oldest to newest
+          </span>
+        }
+      </header>
+      <app-timeline-strip
+        [events]="filtered()"
+        [total]="events().length"
+        [loading]="!device"
+        [(selected)]="selectedKey"
+      />
+      <app-event-detail [event]="selected()" (close)="selectedKey.set(null)" />
+    </section>
+
+    <app-timeline-list
+      [events]="filtered()"
+      [total]="events().length"
+      [loading]="!device"
+      [selected]="selectedKey()"
+      (select)="selectedKey.set($event)"
+    />
   }
 </section>

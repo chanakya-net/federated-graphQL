@@ -21,6 +21,7 @@ function event(id: string, occurredAt: string, extra: Partial<TimelineEvent> = {
     id,
     source: 'patch',
     occurredAt,
+    label: id,
     title: id,
     subtitle: '',
     status: 'APPLIED',
@@ -35,10 +36,11 @@ const filter = (change: Partial<TimelineFilter>): TimelineFilter => ({
 });
 
 describe('mapping', () => {
-  it('patch: title, "<kbId> · <vendor>", status, severity', () => {
+  it('patch: title, "<kbId> · <vendor>", status, severity, KB id as the label', () => {
     const e = fromPatch(full.patchEvents[0]);
     expect(e).toMatchObject({
       source: 'patch',
+      label: 'KB5000128',
       title: 'Oracle security update KB5000128',
       subtitle: 'KB5000128 · Oracle',
       status: 'APPLIED',
@@ -46,10 +48,11 @@ describe('mapping', () => {
     });
   });
 
-  it('vulnerability: "<kind> <cve.id>", cve title, finding state, cve severity', () => {
+  it('vulnerability: "<kind> <cve.id>", cve title, finding state, cve severity, CVE id as the label', () => {
     const v = full.vulnerabilityEvents[0];
     expect(fromVulnerability(v)).toMatchObject({
       source: 'vulnerability',
+      label: v.cve.id,
       title: `${v.kind} ${v.cve.id}`,
       subtitle: v.cve.title,
       status: v.findingState,
@@ -57,11 +60,12 @@ describe('mapping', () => {
     });
   });
 
-  it('install: "<action> <name> <version>", publisher, result, no severity', () => {
+  it('install: "<action> <name> <version>", publisher, result, no severity, name as the label', () => {
     const i = full.installEvents[0];
     const e = fromInstall(i);
     expect(e).toMatchObject({
       source: 'softwareinstall',
+      label: i.software.name,
       title: `${i.action} ${i.software.name} ${i.software.version}`,
       subtitle: i.software.publisher,
       status: i.result,

@@ -60,6 +60,10 @@ describe('DeviceTimelinePage', () => {
   const banners = (kind: string) => [...el.querySelectorAll(`app-section-banner.${kind}`)];
   const sectionOf = (banner: Element) => banner.getAttribute('data-section');
   const listItems = () => [...el.querySelectorAll('app-timeline-list li.event')];
+  const points = () => [
+    ...el.querySelectorAll<HTMLButtonElement>('app-timeline-strip .point-button'),
+  ];
+  const detail = () => el.querySelector('app-event-detail .detail');
   const stateCard = () =>
     el.querySelector('app-state-card')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
@@ -115,7 +119,7 @@ describe('DeviceTimelinePage', () => {
     );
 
     const device = deniedBob.data.device;
-    expect(el.querySelector('mat-card-title')?.textContent?.trim()).toBe(device.hostname);
+    expect(el.querySelector('.hostname')?.textContent?.trim()).toBe(device.hostname);
     expect(listItems()).toHaveLength(device.patchEvents.length + device.vulnerabilityEvents.length);
     expect(listItems().some((li) => li.getAttribute('data-source') === 'softwareinstall')).toBe(
       false,
@@ -146,6 +150,53 @@ describe('DeviceTimelinePage', () => {
       Date.parse(li.querySelector('time')!.getAttribute('datetime')!),
     );
     expect(times).toEqual([...times].sort((a, b) => b - a));
+  });
+
+  it('the strip has one point per listed event, oldest first; a point shows the details', async () => {
+    await respond(await open('alice'), fullAlice);
+    expect(points()).toHaveLength(listItems().length);
+    const stripTimes = points().map((b) => b.querySelector('time')!.getAttribute('datetime'));
+    const listTimes = listItems().map((li) => li.querySelector('time')!.getAttribute('datetime'));
+    expect(stripTimes).toEqual([...listTimes].reverse());
+    expect(detail()).toBeNull();
+    expect(el.querySelector('app-event-detail .hint')).not.toBeNull();
+
+    points().at(-1)!.click(); // the newest event
+    await settle();
+    const newest = listItems()[0];
+    expect(detail()?.textContent).toContain(newest.querySelector('.title')!.textContent);
+    expect(el.querySelector('app-event-detail')?.getAttribute('data-source')).toBe(
+      newest.getAttribute('data-source'),
+    );
+    expect(el.querySelectorAll('app-timeline-list li.event.selected')).toHaveLength(1);
+    expect(newest.classList).toContain('selected');
+
+    points().at(-1)!.click(); // again: cleared
+    await settle();
+    expect(detail()).toBeNull();
+    expect(el.querySelector('app-timeline-list li.event.selected')).toBeNull();
+  });
+
+  it('a list row selects too; a filter that hides the selected event clears the details', async () => {
+    await respond(await open('alice'), fullAlice);
+    const patchRow = listItems().find((li) => li.getAttribute('data-source') === 'patch')!;
+    patchRow.querySelector<HTMLButtonElement>('.row')!.click();
+    await settle();
+    expect(el.querySelector('app-event-detail')?.getAttribute('data-source')).toBe('patch');
+    expect(detail()?.textContent).toContain(patchRow.querySelector('.title')!.textContent);
+    const selectedPoint = el.querySelector('app-timeline-strip .point-button.selected');
+    expect(selectedPoint?.querySelector('time')?.getAttribute('datetime')).toBe(
+      patchRow.querySelector('time')!.getAttribute('datetime'),
+    );
+
+    const page = fixture.componentInstance as unknown as {
+      filter: { update: (fn: (f: object) => object) => void };
+    };
+    page.filter.update((f) => ({ ...f, sources: new Set(['vulnerability']) }));
+    await settle();
+    expect(detail()).toBeNull();
+    expect(el.querySelector('app-timeline-strip .point-button.selected')).toBeNull();
+    expect(points()).toHaveLength(fullAlice.data.device.vulnerabilityEvents.length);
   });
 
   it('device null without errors: not found in the user tenant', async () => {

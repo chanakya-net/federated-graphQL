@@ -21,38 +21,57 @@
   margin: 0;
   padding: 0;
   border: 1px solid var(--mat-sys-outline-variant);
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
-}
-.event {
-  display: grid;
-  grid-template-columns: 28px 190px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  background: var(--mat-sys-surface);
+  background: var(--mat-sys-surface-container-lowest);
 }
 .event + .event {
   border-top: 1px solid var(--mat-sys-outline-variant);
 }
 
-.source {
-  color: var(--mat-sys-on-surface-variant);
+// The whole row is the button; the subgraph colour is a bar on the left, full when selected.
+.row {
+  display: grid;
+  grid-template-columns: 28px 190px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 4px 0 0 transparent;
+  transition:
+    background 0.12s,
+    box-shadow 0.12s;
 }
-[data-source='patch'] .source {
-  color: #1565c0;
+.row:hover {
+  background: color-mix(in srgb, var(--source-color) 5%, transparent);
 }
-[data-source='vulnerability'] .source {
-  color: #ad1457;
+.row:focus-visible {
+  outline: 2px solid var(--source-color);
+  outline-offset: -2px;
 }
-[data-source='softwareinstall'] .source {
-  color: #2e7d32;
+.selected .row {
+  background: color-mix(in srgb, var(--source-color) 8%, transparent);
+  box-shadow: inset 4px 0 0 var(--source-color);
 }
 
+.source {
+  color: var(--source-color);
+}
 .when {
   color: var(--mat-sys-on-surface-variant);
   font: var(--mat-sys-body-small);
   white-space: nowrap;
+}
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .title {
   font: var(--mat-sys-body-large);
@@ -70,52 +89,11 @@
   flex-wrap: wrap;
 }
 
-.chip {
-  padding: 2px 8px;
-  border-radius: 8px;
-  font: var(--mat-sys-label-small);
-  letter-spacing: 0.04em;
-  background: var(--mat-sys-surface-container-high);
-  color: var(--mat-sys-on-surface);
-  white-space: nowrap;
-}
-.status[data-status='APPLIED'],
-.status[data-status='SUCCESS'],
-.status[data-status='REMEDIATED'] {
-  background: #e3f2e5;
-  color: #1b5e20;
-}
-.status[data-status='FAILED'] {
-  background: #fde7e7;
-  color: #b3261e;
-}
-.status[data-status='PENDING'],
-.status[data-status='OPEN'] {
-  background: #fff3d6;
-  color: #7a4f00;
-}
-
-.severity {
-  background: transparent;
-  border: 1px solid currentColor;
-}
-.severity[data-severity='CRITICAL'] {
-  color: #b3261e;
-}
-.severity[data-severity='HIGH'] {
-  color: #c2410c;
-}
-.severity[data-severity='MEDIUM'] {
-  color: #8a6100;
-}
-.severity[data-severity='LOW'] {
-  color: var(--mat-sys-on-surface-variant);
-}
-
 .skeleton {
   border: 1px solid var(--mat-sys-outline-variant);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 8px 16px;
+  background: var(--mat-sys-surface-container-lowest);
 }
 .skeleton-row {
   display: grid;
@@ -131,12 +109,10 @@
 }
 
 @media (max-width: 720px) {
-  .event {
+  .row {
     grid-template-columns: 28px minmax(0, 1fr);
   }
-  .when {
-    grid-column: 2;
-  }
+  .when,
   .text,
   .chips {
     grid-column: 2;

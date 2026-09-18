@@ -44,9 +44,10 @@ exits after it writes the tokens. For anything else, see README "Troubleshooting
 In the UI, pick **Alice (Tenant A)** in the *Demo user* menu. The menu shows each user's tenant and services.
 Search `dev-000`: you get 100 devices, all in TenantA. Open **dev-00001**.
 
-Expected: three section chips, **Patch 5 events**, **Vulnerability 14 events**, **Software Install 20
-events**, and one merged list, "39 of 39 events, newest first". Filter by type, date range, status or
-text to show that it is one timeline.
+Expected: three section cards, **Patch 5 events**, **Vulnerability 14 events**, **Software Install 20
+events**, one horizontal timeline of 39 points in the subgraph colours (blue patch, pink vulnerability,
+green install; click a point for the event's details) and one merged list, "39 of 39 events, newest
+first". Filter by type, date range, status or text to show that it is one timeline.
 
 > "One query, three backends, three database technologies: MongoDB, PostgreSQL and Azure Blob storage."
 

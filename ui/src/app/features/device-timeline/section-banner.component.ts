@@ -10,27 +10,36 @@ const unavailableCopy = (s: SectionMeta) =>
   `${s.name} service is currently unavailable — ${s.history} history is not shown.`;
 
 /**
- * The state of one timeline section. `ok`: a compact line with the event count. `no-access`: lock,
- * neutral colours. `unavailable`: warning, the theme's error colours. `null`: still loading.
+ * The state of one timeline section, as a card in the subgraph's colour (so the three cards double as
+ * the legend of the timeline). `ok`: name and event count. `no-access`: lock, neutral colours.
+ * `unavailable`: warning, the theme's error colours. `null`: still loading.
  */
 @Component({
   selector: 'app-section-banner',
   imports: [MatIconModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '[class]': 'kind()', '[attr.data-section]': 'section().key' },
+  host: {
+    '[class]': 'kind()',
+    '[attr.data-section]': 'section().key',
+    '[style.--source-color]': 'section().color',
+  },
   template: `
     @let s = state();
     @switch (s?.kind) {
       @case ('ok') {
         <div class="line" role="status">
-          <mat-icon class="icon" aria-hidden="true">{{ section().icon }}</mat-icon>
-          <span class="name">{{ section().name }}</span>
-          <span class="count">{{ count() }} event{{ count() === 1 ? '' : 's' }}</span>
+          <span class="swatch" aria-hidden="true"
+            ><mat-icon class="icon">{{ section().icon }}</mat-icon></span
+          >
+          <span class="text">
+            <span class="name">{{ section().name }}</span>
+            <span class="count">{{ count() }} event{{ count() === 1 ? '' : 's' }}</span>
+          </span>
         </div>
       }
       @case ('no-access') {
         <div class="banner" role="status">
-          <mat-icon class="icon" aria-hidden="true">lock</mat-icon>
+          <span class="swatch" aria-hidden="true"><mat-icon class="icon">lock</mat-icon></span>
           <div class="text">
             <span class="name">{{ section().name }}</span>
             <p class="copy">{{ noAccess() }}</p>
@@ -39,7 +48,7 @@ const unavailableCopy = (s: SectionMeta) =>
       }
       @case ('unavailable') {
         <div class="banner" role="alert">
-          <mat-icon class="icon" aria-hidden="true">warning</mat-icon>
+          <span class="swatch" aria-hidden="true"><mat-icon class="icon">warning</mat-icon></span>
           <div class="text">
             <span class="name">{{ section().name }}</span>
             <p class="copy">{{ unavailable() }}</p>
@@ -51,9 +60,13 @@ const unavailableCopy = (s: SectionMeta) =>
       }
       @default {
         <div class="line" aria-busy="true">
-          <mat-icon class="icon" aria-hidden="true">{{ section().icon }}</mat-icon>
-          <span class="name">{{ section().name }}</span>
-          <span class="skeleton-bar count-skeleton"></span>
+          <span class="swatch" aria-hidden="true"
+            ><mat-icon class="icon">{{ section().icon }}</mat-icon></span
+          >
+          <span class="text">
+            <span class="name">{{ section().name }}</span>
+            <span class="skeleton-bar count-skeleton"></span>
+          </span>
         </div>
       }
     }

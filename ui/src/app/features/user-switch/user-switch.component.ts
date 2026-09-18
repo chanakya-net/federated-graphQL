@@ -42,7 +42,10 @@ import { SessionService } from '../../core/session.service';
   `,
   styles: `
     .field {
+      --mat-form-field-container-height: 44px;
+      --mat-form-field-container-vertical-padding: 10px;
       width: 280px;
+      max-width: calc(100vw - 88px);
       font: var(--mat-sys-body-medium);
     }
     .option {
