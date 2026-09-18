@@ -1,0 +1,16 @@
+{
+  "name": "DeviceDirectory",
+  "transports": {
+    "http": {
+      "url": "http://device-directory:8080/graphql",
+      "capabilities": {
+        "batching": {
+          "variableBatching": true,
+          "requestBatching": true,
+          "aliasBatching": true
+        },
+        "onError": "propagate"
+      }
+    }
+  }
+}

@@ -1,0 +1,69 @@
+schema {
+  query: Query
+}
+
+type Query @authorize {
+  "The device with this id in the caller's tenant. Null (never an error) if it does not exist there."
+  device(id: ID!): Device @lookup @cost(weight: "10")
+  "Devices in the caller's tenant. `search` matches id, hostname or os (case-insensitive substring). `first` is clamped to 1..100. Ordered by hostname, then id."
+  devices(search: String, first: Int! = 25, offset: Int! = 0): DeviceSearchResult!
+    @cost(weight: "10")
+}
+
+"A device in the caller's tenant. Owned by Device Directory; domain subgraphs extend it by `id`."
+type Device {
+  id: ID!
+  hostname: String!
+  os: String!
+  ipAddress: String!
+  lastSeenAt: DateTime!
+  tenantId: String!
+}
+
+type DeviceSearchResult {
+  items: [Device!]!
+  totalCount: Int!
+}
+
+"Defines when a policy shall be executed."
+enum ApplyPolicy {
+  "Before the resolver was executed."
+  BEFORE_RESOLVER
+  "After the resolver was executed."
+  AFTER_RESOLVER
+  "The policy is applied in the validation step before the execution."
+  VALIDATION
+}
+
+"The `DateTime` scalar type represents a date and time with time zone offset information."
+scalar DateTime
+  @specifiedBy(url: "https://scalars.graphql.org/chillicream/date-time.html")
+
+"The authorize directive."
+directive @authorize(
+  "The name of the authorization policy that determines access to the annotated resource."
+  policy: String
+  "Roles that are allowed to access the annotated resource."
+  roles: [String!]
+  "Defines when the authorize directive shall be applied. By default the authorize directive is applied before the resolver is executed."
+  apply: ApplyPolicy! = BEFORE_RESOLVER
+) repeatable on OBJECT | FIELD_DEFINITION
+
+"The purpose of the `cost` directive is to define a `weight` for GraphQL types, fields, and arguments. Static analysis can use these weights when calculating the overall cost of a query or response."
+directive @cost(
+  "The `weight` argument defines what value to add to the overall cost for every appearance, or possible appearance, of a type, field, argument, etc."
+  weight: String!
+) on
+  | SCALAR
+  | OBJECT
+  | FIELD_DEFINITION
+  | ARGUMENT_DEFINITION
+  | ENUM
+  | INPUT_FIELD_DEFINITION
+
+"""
+The @lookup directive is used within a source schema to specify output fields
+that can be used by the distributed GraphQL executor to resolve an entity by
+a stable key.
+"""
+directive @lookup on FIELD_DEFINITION

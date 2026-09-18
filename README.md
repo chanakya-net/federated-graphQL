@@ -34,6 +34,8 @@ scripts/test.sh           # everything, including [Trait("Category","Integration
 
 `scripts/test.sh` runs with `--no-build`, so run `scripts/build.sh` first.
 
+Device Directory (P2B): `dotnet test tests/DeviceDirectory.Tests -c Release` — needs Docker (Testcontainers `postgres:17-alpine`); add `--filter "Category!=Integration"` for the unit tests only.
+
 ## Layout
 
 ```
