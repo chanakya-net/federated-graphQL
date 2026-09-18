@@ -1,0 +1,10 @@
+<Project>
+  <!-- Spike-only build settings. Stops MSBuild from picking up the solution-level
+       Directory.Build.props that Phase 1 creates at the repo root. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

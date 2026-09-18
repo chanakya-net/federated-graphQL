@@ -1,0 +1,1 @@
+{"errors":[{"message":"The current user is not authorized to access this resource.","path":["device","notes"],"extensions":{"code":"AUTH_NOT_AUTHORIZED"}}],"data":{"device":{"id":"dev-00001","hostname":"alpha","notes":null}}}

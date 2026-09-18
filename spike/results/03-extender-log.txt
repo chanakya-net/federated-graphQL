@@ -1,0 +1,2 @@
+      Authorization header present: True (POST /graphql)
+      Authorization header present: True (POST /graphql)

@@ -1,0 +1,31 @@
+name: sor-spike
+
+x-health: &health
+  test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+  interval: 2s
+  timeout: 2s
+  retries: 30
+
+services:
+  owner:
+    build: { context: ., dockerfile: Dockerfile, args: { PROJECT: Owner } }
+    environment: { ASPNETCORE_URLS: "http://+:8080" }
+    healthcheck: *health
+
+  extender:
+    build: { context: ., dockerfile: Dockerfile, args: { PROJECT: Extender } }
+    environment: { ASPNETCORE_URLS: "http://+:8080" }
+    healthcheck: *health
+
+  gateway:
+    build: { context: ., dockerfile: Dockerfile, args: { PROJECT: Gateway } }
+    environment:
+      ASPNETCORE_URLS: "http://+:8080"
+      SUBGRAPH_OWNER_URL: "http://owner:8080/graphql"
+      SUBGRAPH_EXTENDER_URL: "${SPIKE_EXTENDER_URL:-http://extender:8080/graphql}" # experiment 11 overrides this
+      SUBGRAPH_TIMEOUT_SECONDS: "5"
+      ALLOW_ONERROR_OVERRIDE: "true" # experiment 9 only
+    # Host port 5000 is taken by macOS AirPlay Receiver (ControlCenter); see version-facts §8.
+    ports: [ "${SPIKE_GATEWAY_PORT:-5050}:8080" ]
+    healthcheck: *health
+    depends_on: [ owner ] # deliberately NOT extender: the gateway must start without it

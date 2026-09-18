@@ -1,0 +1,16 @@
+{
+  "name": "Owner",
+  "transports": {
+    "http": {
+      "url": "http://owner:8080/graphql",
+      "capabilities": {
+        "batching": {
+          "variableBatching": true,
+          "requestBatching": true,
+          "aliasBatching": true
+        },
+        "onError": "propagate"
+      }
+    }
+  }
+}

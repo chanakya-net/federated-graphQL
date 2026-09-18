@@ -1,0 +1,6 @@
+**/bin/
+**/obj/
+**/.vs/
+schemas/
+docker-compose.yml
+run-experiments.sh

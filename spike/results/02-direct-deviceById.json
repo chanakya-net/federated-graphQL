@@ -1,0 +1,1 @@
+{"errors":[{"message":"The field `deviceById` does not exist on the type `Query`.","locations":[{"line":1,"column":3}],"extensions":{"type":"Query","field":"deviceById","responseName":"deviceById","specifiedBy":"https://spec.graphql.org/September2025/#sec-Field-Selections"}}]}

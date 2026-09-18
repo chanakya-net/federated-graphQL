@@ -1,0 +1,15 @@
+<Project>
+  <!-- Versions verified by the Phase 0 spike. Phase 1 copies these verbatim
+       into the root Directory.Packages.props (see docs/version-facts.md §1). -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="HotChocolate.AspNetCore" Version="16.6.6" />
+    <PackageVersion Include="HotChocolate.AspNetCore.Authorization" Version="16.6.6" />
+    <PackageVersion Include="HotChocolate.AspNetCore.CommandLine" Version="16.6.6" />
+    <PackageVersion Include="HotChocolate.Fusion.AspNetCore" Version="16.6.6" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.19.2" />
+  </ItemGroup>
+</Project>

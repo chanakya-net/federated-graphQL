@@ -1,0 +1,1 @@
+{"errors":[{"message":"Unexpected Execution Error","path":["device","notes"]}],"data":{"device":{"id":"dev-00001","hostname":"alpha","notes":null}}}

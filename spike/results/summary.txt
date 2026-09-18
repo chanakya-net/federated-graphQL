@@ -1,0 +1,34 @@
+      HTTP 200 in 1.081669s: {"data":{"device":{"id":"dev-00001","hostname":"alpha","notes":["note for dev-00001 in TenantA"]}}}
+PASS  1 happy path: notes has one element, no errors
+      HTTP 200: ["device","devices"]
+PASS  2 introspection: device present, deviceById absent
+      direct deviceById -> HTTP 400: "The field `deviceById` does not exist on the type `Query`."
+PASS  2 direct call to deviceById is rejected by validation
+      extender log lines with 'present: True': before=1 after=2
+PASS  3 extender received the Authorization header
+      HTTP 200 in 0.019648s: {"errors":[{"message":"Unexpected Execution Error","path":["device","notes"]}],"data":{"device":{"id":"dev-00001","hostname":"alpha","notes":null}}}
+PASS  4 stop: device kept, notes null, error path starts [device,notes]
+PASS  4 stop: HTTP 200 in < 2 s (0.019648s)
+      extender healthy, gateway pointed at nowhere.invalid -> HTTP 200: {"notes":null,"err":"Unexpected Execution Error"}
+PASS  11 env URL wins over archive URL (healthy extender is NOT reached)
+      HTTP 200 in 5.320384s: {"errors":[{"message":"Unexpected Execution Error","path":["device","notes"]}],"data":{"device":{"id":"dev-00001","hostname":"alpha","notes":null}}}
+PASS  5 pause: device kept, notes null, error path starts [device,notes]
+PASS  5 pause: HTTP 200 between 5 s and 8 s (5.320384s)
+      HTTP 200 in 0.095282s: {"errors":[{"message":"The current user is not authorized to access this resource.","path":["device","notes"],"extensions":{"code":"AUTH_NOT_AUTHORIZED"}}],"data":{"device":{"id":"dev-00001","hostname":"alpha","notes":null}}}
+PASS  6 denied: device kept, notes null, path [device,notes], code AUTH_NOT_AUTHORIZED
+PASS  6 denied: HTTP 200
+      HTTP 401, body bytes=0, subgraph POSTs owner 6->6 extender 4->4
+PASS  7 unauthenticated: 401 at the gateway
+PASS  7 no subgraph saw the request
+      HTTP 200: {"data":{"device":null}}
+PASS  8 cross-tenant: device null, no errors
+      09-nullable-null: {"errors":[{"message":"The current user is not authorized to access this resource.","path":["device","notes"],"extensions":{"code":"AUTH_NOT_AUTHORIZED"}}],"data":{"device":{"id":"dev-00001","hostname":"alpha","notes":null}}}
+      09-nonnull-propagate: {"errors":[{"message":"The current user is not authorized to access this resource.","path":["device","noteCount"],"extensions":{"code":"AUTH_NOT_AUTHORIZED"}}],"data":{"device":null}}
+      09-nonnull-null: {"errors":[{"message":"The current user is not authorized to access this resource.","path":["device","noteCount"],"extensions":{"code":"AUTH_NOT_AUTHORIZED"}}],"data":{"device":{"id":"dev-00001","hostname":"alpha","noteCount":null}}}
+      09-stop-nullable-null: {"errors":[{"message":"Unexpected Execution Error","path":["device","notes"]}],"data":{"device":{"id":"dev-00001","hostname":"alpha","notes":null}}}
+      09-stop-nonnull-propagate: {"errors":[{"message":"Unexpected Execution Error","path":["device","noteCount"]}],"data":{"device":null}}
+PASS  9 nullable field + onError NULL: same shape as PROPAGATE (denied)
+PASS  9 NON-null field + PROPAGATE: error nulls the whole device (why extension fields must stay nullable)
+PASS  9 outage on NON-null field + PROPAGATE: whole device null too
+      GET /graphql -> 301 http://localhost:5050/graphql/; followed -> 200 text/html; asset assets/main.cbb9dd2a.ChRcIDX9.js -> 200
+PASS  10 Nitro UI + assets served on GET without a token

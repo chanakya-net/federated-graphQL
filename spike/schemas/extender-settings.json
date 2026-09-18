@@ -1,0 +1,16 @@
+{
+  "name": "Extender",
+  "transports": {
+    "http": {
+      "url": "http://extender:8080/graphql",
+      "capabilities": {
+        "batching": {
+          "variableBatching": true,
+          "requestBatching": true,
+          "aliasBatching": true
+        },
+        "onError": "propagate"
+      }
+    }
+  }
+}
