@@ -98,3 +98,12 @@ an empty `pgdata` volume. A healthy service is one whose `/health` answers 200 (
 
 **After any subgraph schema change, run `scripts/compose-schema.sh` and commit `schemas/` and
 `gateway/gateway.far`** (added in Phase 4).
+
+### Get a token
+
+Stdout is the JWT only (users in `src/TokenGenerator/users.json`); `--help` lists all options:
+
+```bash
+set -a; . ./.env; set +a; TOKEN=$(dotnet run --project src/TokenGenerator -- --user bob)   # or: --tenant TenantB --services patch,softwareinstall
+TOKEN=$(docker compose run --rm -T token-generator --user alice)                            # same, inside the stack
+```

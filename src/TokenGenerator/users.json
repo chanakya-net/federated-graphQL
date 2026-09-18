@@ -1,0 +1,7 @@
+[
+  { "sub": "alice", "name": "Alice (Tenant A)", "tenantId": "TenantA", "services": ["patch", "vulnerability", "softwareinstall"] },
+  { "sub": "bob",   "name": "Bob (Tenant A)",   "tenantId": "TenantA", "services": ["patch", "vulnerability"] },
+  { "sub": "carol", "name": "Carol (Tenant A)", "tenantId": "TenantA", "services": ["softwareinstall"] },
+  { "sub": "dave",  "name": "Dave (Tenant B)",  "tenantId": "TenantB", "services": ["patch", "vulnerability", "softwareinstall"] },
+  { "sub": "erin",  "name": "Erin (Tenant B)",  "tenantId": "TenantB", "services": ["patch"] }
+]

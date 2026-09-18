@@ -1,3 +1,9 @@
-// Phase 1 skeleton: builds and exits 0. Lane P2A replaces this file.
-Console.Error.WriteLine("TokenGenerator skeleton: not implemented yet (Phase 2A).");
-return 0;
+using System.Collections;
+using SoR.TokenGenerator;
+
+// All logic lives in TokenGeneratorApp.Run so the tests can drive it in-process.
+var env = new Dictionary<string, string?>(StringComparer.Ordinal);
+foreach (DictionaryEntry variable in Environment.GetEnvironmentVariables())
+    env[(string)variable.Key] = (string?)variable.Value;
+
+return TokenGeneratorApp.Run(args, env, Console.Out, Console.Error);

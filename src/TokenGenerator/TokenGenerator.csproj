@@ -8,4 +8,9 @@
     <ProjectReference Include="../Shared.Auth/Shared.Auth.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The committed user list ships next to the binary (default USERS_FILE) and in the image (/app/users.json). -->
+    <Content Include="users.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
