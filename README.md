@@ -38,6 +38,8 @@ Device Directory (P2B): `dotnet test tests/DeviceDirectory.Tests -c Release` —
 
 Patch (P3A): `dotnet test tests/Patch.Tests -c Release` — needs Docker (Testcontainers `mongo:8`); add `--filter "Category!=Integration"` for the unit tests only (no Docker).
 
+Vulnerability (P3B): `dotnet test tests/Vulnerability.Tests -c Release` — needs Docker (Testcontainers `postgres:17-alpine`, seeded once per run as `vuln_user`); add `--filter "Category!=Integration"` for the unit tests only.
+
 ## Layout
 
 ```
