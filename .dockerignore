@@ -1,0 +1,31 @@
+# Build context for every root-context image (src/*/Dockerfile, context = repo root).
+# Only Directory.*.props, global.json, src/ and gateway/gateway.far are actually needed.
+
+# Build output and dependencies
+**/bin
+**/obj
+**/node_modules
+**/TestResults
+**/.vs
+**/.idea
+**/*.user
+**/.DS_Store
+
+# The Angular UI builds with its own context (./ui); P5 owns ui/.dockerignore.
+ui
+
+# Not part of any image
+.git
+.github
+.claude
+.codegraph
+spike
+tests
+docs
+phases
+*.md
+architecture.svg
+
+# Dev-only values are passed as compose environment, never baked into an image
+.env
+.env.*

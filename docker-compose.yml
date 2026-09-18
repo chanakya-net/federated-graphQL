@@ -1,0 +1,181 @@
+# SoR federated GraphQL POC — the whole stack: `docker compose up --build` (or scripts/up.sh).
+# Values come from the committed .env (dev-only, plan §4.4). Service names, ports and env vars are
+# the contract in contracts/http-and-env.md; each lane owns its src/<Name>/Dockerfile (template:
+# infra/docker/Dockerfile.template) and plugs in without editing this file.
+name: sor-poc
+
+# Shared .NET healthcheck: /health must answer 200 only when the service can serve queries.
+# The -alpine runtime has busybox wget; no .NET image has curl.
+x-dotnet-health: &dotnet-health
+  test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1"]
+  interval: 5s
+  timeout: 3s
+  retries: 30
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: sor
+      # Read by infra/postgres/init/01-roles-and-schemas.sh (first start of an empty volume only).
+      DEVDIR_DB_PASSWORD: ${DEVDIR_DB_PASSWORD:?set in .env}
+      VULN_DB_PASSWORD: ${VULN_DB_PASSWORD:?set in .env}
+    volumes:
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1: the entrypoint's temporary init server listens on the Unix socket only, so a
+      # TCP probe cannot report healthy before the init scripts have finished.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d sor"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  mongo:
+    image: mongo:8
+    # Smallest WiredTiger cache (default is ~50% of the Docker VM's RAM); the POC data set is tiny.
+    command: ["--wiredTigerCacheSizeGB", "0.25"]
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [internal]
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    # --skipApiVersionCheck: the Azure SDK may be newer than the emulator's API version.
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data --skipApiVersionCheck --silent
+    volumes:
+      - azuritedata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('net').connect(10000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  device-directory:
+    build: { context: ., dockerfile: src/DeviceDirectory/Dockerfile }
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:?set in .env}
+      ConnectionStrings__DeviceDirectory: "Host=postgres;Database=sor;Username=devdir_user;Password=${DEVDIR_DB_PASSWORD};Search Path=device_directory"
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *dotnet-health
+      start_period: 120s # first-boot seeding; failures inside start_period do not count
+    networks: [internal]
+
+  patch:
+    build: { context: ., dockerfile: src/Patch/Dockerfile }
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:?set in .env}
+      Mongo__ConnectionString: mongodb://mongo:27017
+      Mongo__Database: patch
+    depends_on:
+      mongo: { condition: service_healthy }
+    healthcheck:
+      <<: *dotnet-health
+      start_period: 180s
+    networks: [internal]
+
+  vulnerability:
+    build: { context: ., dockerfile: src/Vulnerability/Dockerfile }
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:?set in .env}
+      ConnectionStrings__Vulnerability: "Host=postgres;Database=sor;Username=vuln_user;Password=${VULN_DB_PASSWORD};Search Path=vulnerability"
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *dotnet-health
+      start_period: 180s
+    networks: [internal]
+
+  software-install:
+    build: { context: ., dockerfile: src/SoftwareInstall/Dockerfile }
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:?set in .env}
+      # Well-known Azurite dev account key + compose DNS name. UseDevelopmentStorage=true resolves to
+      # 127.0.0.1 and does not work across containers (plan §4.1).
+      Blob__ConnectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
+      Blob__Container: install-events
+    depends_on:
+      azurite: { condition: service_healthy }
+    healthcheck:
+      <<: *dotnet-health
+      start_period: 300s
+    networks: [internal]
+
+  fusion-gateway:
+    build: { context: ., dockerfile: src/Gateway/Dockerfile }
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:?set in .env}
+      SUBGRAPH_DEVICEDIRECTORY_URL: http://device-directory:8080/graphql
+      SUBGRAPH_PATCH_URL: http://patch:8080/graphql
+      SUBGRAPH_VULNERABILITY_URL: http://vulnerability:8080/graphql
+      SUBGRAPH_SOFTWAREINSTALL_URL: http://software-install:8080/graphql
+      SUBGRAPH_TIMEOUT_SECONDS: ${SUBGRAPH_TIMEOUT_SECONDS:-5}
+    ports:
+      # 5050, not 5000: macOS reserves host port 5000 for AirPlay Receiver (docs/version-facts.md §8).
+      - "${GATEWAY_PORT:-5050}:8080"
+    depends_on:
+      device-directory: { condition: service_healthy }
+      # Domain subgraphs are deliberately NOT dependencies: the gateway must start and serve
+      # degraded responses when any of them is missing or unhealthy (plan §7).
+    healthcheck:
+      <<: *dotnet-health
+      start_period: 30s
+    networks: [internal, public]
+
+  token-generator:
+    # One-shot: writes /tokens/tokens.json and exits 0. Ad-hoc token:
+    #   docker compose run --rm -T token-generator --user alice
+    build: { context: ., dockerfile: src/TokenGenerator/Dockerfile }
+    restart: "no"
+    environment:
+      DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:?set in .env}
+      USERS_FILE: /app/users.json
+      TOKENS_OUTPUT: /tokens/tokens.json
+    volumes:
+      - tokens:/tokens
+    networks: [internal]
+
+  angular-ui:
+    build: { context: ./ui, dockerfile: Dockerfile }
+    ports:
+      - "${UI_PORT:-4200}:80"
+    depends_on:
+      token-generator: { condition: service_completed_successfully }
+      fusion-gateway: { condition: service_healthy }
+    volumes:
+      - tokens:/tokens:ro # Nginx serves /tokens/tokens.json at /tokens.json
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal, public]
+
+volumes:
+  pgdata:
+  mongodata:
+  azuritedata:
+  tokens:
+
+networks:
+  # No route to the host or the internet. Only fusion-gateway and angular-ui also join `public`,
+  # and only they publish ports.
+  internal:
+    internal: true
+  public:

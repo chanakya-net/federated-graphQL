@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+## Dockerfile template for every ASP.NET Core service (phase-2c §5). "##" lines are template notes.
+## Render (one per lane, <Name> = project folder = assembly name):
+##   sed -e '/^##/d' -e 's/<Name>/Patch/g' infra/docker/Dockerfile.template > src/Patch/Dockerfile
+## Gateway (phase-4 §6): after `COPY --from=build /app .` add
+##   COPY gateway/gateway.far /app/gateway.far
+##   ENV GATEWAY_ARCHIVE=/app/gateway.far
+# Rendered from infra/docker/Dockerfile.template. Build context is always the repo root:
+#   docker build -f src/<Name>/Dockerfile .   (or `docker compose build <service>`)
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY Directory.Build.props Directory.Packages.props global.json ./
+COPY src/Shared.Seeding/Shared.Seeding.csproj src/Shared.Seeding/
+COPY src/Shared.Auth/Shared.Auth.csproj src/Shared.Auth/
+COPY src/<Name>/<Name>.csproj src/<Name>/
+RUN dotnet restore src/<Name>/<Name>.csproj
+COPY src/Shared.Seeding src/Shared.Seeding
+COPY src/Shared.Auth src/Shared.Auth
+COPY src/<Name> src/<Name>
+RUN dotnet publish src/<Name>/<Name>.csproj -c Release -o /app --no-restore
+
+# -alpine: busybox wget for the compose healthcheck (no .NET image has curl).
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine
+WORKDIR /app
+COPY --from=build /app .
+ENV ASPNETCORE_URLS=http://+:8080 DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=true
+EXPOSE 8080
+# Non-root user (UID 1654) shipped with the official .NET 8+ images.
+USER app
+ENTRYPOINT ["dotnet", "<Name>.dll"]

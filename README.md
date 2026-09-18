@@ -56,8 +56,45 @@ The subgraph, gateway and token generator projects are Phase 1 skeletons (they s
 
 ## Running the stack
 
-`docker compose up --build` (added in Phase 2C). The gateway is published on host port **5050**
-(`GATEWAY_PORT` in `.env`; macOS reserves 5000), the UI on 4200.
+One command, no pre-steps: `docker compose up --build`. The scripts wrap it:
+
+```bash
+scripts/up.sh                          # build + start everything, wait until healthy (cold start: several minutes)
+scripts/up.sh postgres device-directory fusion-gateway token-generator angular-ui   # a subset (+ its dependencies)
+scripts/wait-healthy.sh patch vulnerability         # wait for services (WAIT_TIMEOUT, default 420 s)
+docker compose run --rm -T token-generator --user alice   # print one user's JWT (e.g. for Nitro)
+scripts/demo-outage.sh patch stop      # outage demos: stop = connection error, pause = 5 s timeout
+scripts/demo-outage.sh patch restore   # unpause/start and wait until healthy
+scripts/reset.sh                       # docker compose down -v (asks first): wipes all seeded data
+```
+
+| What | Where |
+|---|---|
+| UI | http://localhost:4200 (`UI_PORT`) |
+| Gateway | `POST http://localhost:5050/graphql` (`GATEWAY_PORT`; macOS reserves 5000). Needs `Authorization: Bearer <jwt>` |
+| Nitro UI | `GET http://localhost:5050/graphql/` (put the JWT in the connection's headers) |
+| Everything else | internal network only (`internal: true`, no host ports, no internet) |
+
+Compose project `sor-poc`; all values come from the committed `.env` (dev-only). Every .NET service
+image is rendered from `infra/docker/Dockerfile.template` into `src/<Name>/Dockerfile` (build
+context = repo root). Postgres roles and schemas come from `infra/postgres/init/`, which runs only on
+an empty `pgdata` volume. A healthy service is one whose `/health` answers 200 (seeding done).
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| service stays `starting` then `unhealthy` after ~2.5 min | seeding exceeded `start_period` | raise `start_period`; check `docker compose logs <svc>` for seed progress |
+| `wget: can't connect` in healthcheck | app listening on a different port | `ASPNETCORE_URLS=http://+:8080` must be set; no `launchSettings.json` port override in Release |
+| `IDX10720` at startup | signing key shorter than 32 bytes | fix `.env` |
+| `password authentication failed for user devdir_user` | `pgdata` volume created before init script existed | `docker compose down -v` once |
+| Azurite `400 InvalidHeaderValue` | client SDK newer than emulator API | `--skipApiVersionCheck` is set; update the image |
+| gateway 401 on everything | header forwarding not configured or key mismatch | compare `DEV_JWT_SIGNING_KEY` across services in `docker compose config` |
+| `required variable ... is missing a value` | `.env` missing or incomplete | restore the committed `.env` |
+| `failed to read dockerfile: open Dockerfile: no such file or directory` | a lane has not added its `src/<Name>/Dockerfile` (or `ui/Dockerfile`) yet | start a subset: `scripts/up.sh <services...>` |
+| `bind: address already in use` on 5050 / 4200 | host port taken | set `GATEWAY_PORT` / `UI_PORT` in the shell or `.env` |
+| `token-generator` exits non-zero, `Permission denied` on `/tokens` | image runs as non-root and the fresh `tokens` volume is root-owned | create `/tokens` owned by `app` in the image before `USER app`, then `docker volume rm sor-poc_tokens` |
+| `wait-healthy.sh` reports `FAILED <svc> exited(N)` | the container crashed or was stopped | `docker compose logs <svc>`; `scripts/demo-outage.sh <svc> restore` after a demo |
 
 **After any subgraph schema change, run `scripts/compose-schema.sh` and commit `schemas/` and
 `gateway/gateway.far`** (added in Phase 4).
