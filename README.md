@@ -40,6 +40,8 @@ Patch (P3A): `dotnet test tests/Patch.Tests -c Release` — needs Docker (Testco
 
 Vulnerability (P3B): `dotnet test tests/Vulnerability.Tests -c Release` — needs Docker (Testcontainers `postgres:17-alpine`, seeded once per run as `vuln_user`); add `--filter "Category!=Integration"` for the unit tests only.
 
+SoftwareInstall (P3C): `dotnet test tests/SoftwareInstall.Tests -c Release` — needs Docker (Testcontainers `azurite:latest`, the compose image; a full 12 000-blob seed takes about 15 s); add `--filter "Category!=Integration"` for the unit tests only.
+
 ## Layout
 
 ```

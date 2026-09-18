@@ -1,0 +1,87 @@
+schema {
+  query: Query
+}
+
+type Query @authorize {
+  "Internal lookup for the gateway only. Tenant-scoped, NOT behind the service policy."
+  deviceById(id: ID!): Device @lookup @internal
+}
+
+type Device {
+  id: ID!
+  "NULLABLE on purpose (plan §4.2). Requires services contains \"softwareinstall\". Empty list = no events; null + error = degraded or denied. Never make this non-null."
+  installEvents(since: DateTime, until: DateTime): [InstallEvent!]
+    @authorize(policy: "ServiceAccess")
+    @cost(weight: "10")
+}
+
+type InstallEvent {
+  id: ID!
+  deviceId: ID!
+  occurredAt: DateTime!
+  action: InstallAction!
+  result: InstallResult!
+  software: Software!
+}
+
+type Software {
+  name: String!
+  version: String!
+  publisher: String!
+}
+
+"Defines when a policy shall be executed."
+enum ApplyPolicy {
+  "Before the resolver was executed."
+  BEFORE_RESOLVER
+  "After the resolver was executed."
+  AFTER_RESOLVER
+  "The policy is applied in the validation step before the execution."
+  VALIDATION
+}
+
+enum InstallAction {
+  INSTALL
+  UNINSTALL
+  UPGRADE
+}
+
+enum InstallResult {
+  SUCCESS
+  FAILED
+}
+
+"The `DateTime` scalar type represents a date and time with time zone offset information."
+scalar DateTime
+  @specifiedBy(url: "https://scalars.graphql.org/chillicream/date-time.html")
+
+"The authorize directive."
+directive @authorize(
+  "The name of the authorization policy that determines access to the annotated resource."
+  policy: String
+  "Roles that are allowed to access the annotated resource."
+  roles: [String!]
+  "Defines when the authorize directive shall be applied. By default the authorize directive is applied before the resolver is executed."
+  apply: ApplyPolicy! = BEFORE_RESOLVER
+) repeatable on OBJECT | FIELD_DEFINITION
+
+"The purpose of the `cost` directive is to define a `weight` for GraphQL types, fields, and arguments. Static analysis can use these weights when calculating the overall cost of a query or response."
+directive @cost(
+  "The `weight` argument defines what value to add to the overall cost for every appearance, or possible appearance, of a type, field, argument, etc."
+  weight: String!
+) on
+  | SCALAR
+  | OBJECT
+  | FIELD_DEFINITION
+  | ARGUMENT_DEFINITION
+  | ENUM
+  | INPUT_FIELD_DEFINITION
+
+directive @internal on OBJECT | FIELD_DEFINITION
+
+"""
+The @lookup directive is used within a source schema to specify output fields
+that can be used by the distributed GraphQL executor to resolve an entity by
+a stable key.
+"""
+directive @lookup on FIELD_DEFINITION
