@@ -18,3 +18,9 @@ dist/
 
 # Local env overrides
 .env.local
+
+# Claude Code local tooling (not part of the app)
+.claude/
+
+# Session scratch plan (superseded by federated-graphql-poc-plan.md)
+/plan.md

@@ -112,5 +112,5 @@ Angular UI ──JWT──▶ Fusion Gateway ──┬──▶ Device Directory
 | 1–2 | Scaffold, token generator, Device Directory, Docker Compose infrastructure | Done |
 | 3 | Patch (MongoDB), Vulnerability (PostgreSQL), Software Install (Azurite) services | Done |
 | 4 | Fusion gateway, schema composition, drift check | Done |
-| 5 | Angular UI: timeline, user switcher, ok / no-access / unavailable states | In progress |
-| 6 | End-to-end validation: stop and pause each service, run each demo user | Not started |
+| 5 | Angular UI: timeline, user switcher, ok / no-access / unavailable states | Done |
+| 6 | End-to-end validation: stop and pause each service, run each demo user | Done |
