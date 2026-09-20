@@ -1,4 +1,7 @@
-import type { SoftwareKeyInput } from '../graphql/types';
+export interface SoftwareKeyInput {
+  name: string;
+  version: string | null;
+}
 import type { SearchCapability } from '../graphql/types';
 
 // Pure model of the "Find devices" page: an ordered list of filters joined by AND / OR, and how that

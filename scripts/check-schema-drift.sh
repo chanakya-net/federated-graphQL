@@ -11,8 +11,10 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 [ -f gateway/gateway.far ] || { echo "DRIFT: gateway/gateway.far is missing; run scripts/compose-schema.sh"; exit 1; }
+[ -f gateway/timeline-sources.json ] || { echo "DRIFT: gateway/timeline-sources.json is missing; run scripts/compose-schema.sh"; exit 1; }
 cp -R schemas "$tmp/schemas.before"
 cp gateway/gateway.far "$tmp/before.far"
+cp gateway/timeline-sources.json "$tmp/timeline-sources.before.json"
 
 scripts/compose-schema.sh
 
@@ -20,6 +22,12 @@ drift=0
 if ! diff -r "$tmp/schemas.before" schemas >/dev/null; then
   echo "DRIFT: exported schemas differ from the committed schemas/:"
   diff -r "$tmp/schemas.before" schemas || true
+  drift=1
+fi
+
+if ! cmp -s "$tmp/timeline-sources.before.json" gateway/timeline-sources.json; then
+  echo "DRIFT: gateway/timeline-sources.json differs from the generated catalog"
+  diff -u "$tmp/timeline-sources.before.json" gateway/timeline-sources.json || true
   drift=1
 fi
 
@@ -35,7 +43,7 @@ if ! cmp -s "$tmp/before.far" gateway/gateway.far; then
 fi
 
 if [ "$drift" = 1 ]; then
-  echo "Fix: commit the regenerated schemas/ and gateway/gateway.far (they are now up to date in the working tree)."
+  echo "Fix: commit the regenerated schemas/, gateway/gateway.far and gateway/timeline-sources.json."
   exit 1
 fi
 echo "no drift"

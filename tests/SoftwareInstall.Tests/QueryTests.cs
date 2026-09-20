@@ -24,6 +24,18 @@ public sealed class QueryTests(AzuriteFixture azurite)
         }
         """;
 
+    private const string TimelineQuery = """
+        query($id: ID!, $since: DateTime, $until: DateTime) {
+          deviceById(id: $id) {
+            id
+            softwareInstallTimeline(since: $since, until: $until) {
+              id occurredAt label title subtitle status severity
+              details { label value mono }
+            }
+          }
+        }
+        """;
+
     private const string SoftwareQuery =
         "query($search: String, $first: Int!, $offset: Int!) { software(search: $search, first: $first, offset: $offset) { name version publisher } }";
 
@@ -57,6 +69,61 @@ public sealed class QueryTests(AzuriteFixture azurite)
         Assert.All(events, e => Assert.StartsWith("dev-00001-i", e.GetProperty("id").GetString(), StringComparison.Ordinal));
         AssertDescending(events);
         AssertEqualsSeed(DeviceCatalog.Build(1), events);
+    }
+
+    [Fact]
+    public async Task SoftwareInstallTimeline_projects_complete_normalized_events()
+    {
+        var device = DeviceCatalog.Build(1);
+        var expected = InstallSeedData.BuildEventsFor(device).Reverse().ToList();
+
+        var r = await App.QueryAsync(TimelineQuery, Tokens.Alice, new { id = device.Id });
+
+        Assert.False(r.HasErrors, r.ToString());
+        var events = TimelineEvents(r, "softwareInstallTimeline");
+        Assert.Equal(expected.Select(e => e.Id), events.Select(e => e.GetProperty("id").GetString()));
+        foreach (var (want, got) in expected.Zip(events))
+        {
+            var action = want.Action.ToString().ToUpperInvariant();
+            var result = want.Result.ToString().ToUpperInvariant();
+            Assert.Equal(want.OccurredAt, got.GetProperty("occurredAt").GetDateTimeOffset());
+            Assert.Equal(want.Software.Name, got.GetProperty("label").GetString());
+            Assert.Equal($"{action} {want.Software.Name} {want.Software.Version}", got.GetProperty("title").GetString());
+            Assert.Equal(want.Software.Publisher, got.GetProperty("subtitle").GetString());
+            Assert.Equal(result, got.GetProperty("status").GetString());
+            Assert.Equal(JsonValueKind.Null, got.GetProperty("severity").ValueKind);
+            AssertDetails(got,
+                ("Action", action, false),
+                ("Software", want.Software.Name, false),
+                ("Version", want.Software.Version, true),
+                ("Publisher", want.Software.Publisher, false),
+                ("Result", result, false),
+                ("Event ID", want.Id, true));
+        }
+    }
+
+    [Fact]
+    public async Task SoftwareInstallTimeline_preserves_date_tenant_and_authorization_rules()
+    {
+        var device = DeviceCatalog.Build(42);
+        var seeded = InstallSeedData.BuildEventsFor(device);
+        var since = seeded[2].OccurredAt;
+        var until = seeded[^3].OccurredAt;
+
+        var window = await App.QueryAsync(TimelineQuery, Tokens.Alice, new { id = device.Id, since, until });
+        Assert.False(window.HasErrors, window.ToString());
+        Assert.Equal(seeded.Where(e => e.OccurredAt >= since && e.OccurredAt <= until).Reverse().Select(e => e.Id),
+            TimelineEvents(window, "softwareInstallTimeline").Select(e => e.GetProperty("id").GetString()));
+
+        var crossTenant = await App.QueryAsync(TimelineQuery, Tokens.Dave, new { id = "dev-00001" });
+        Assert.False(crossTenant.HasErrors, crossTenant.ToString());
+        Assert.Empty(TimelineEvents(crossTenant, "softwareInstallTimeline"));
+
+        var denied = await App.QueryAsync(TimelineQuery, Tokens.Bob, new { id = "dev-00001" });
+        Assert.Equal(JsonValueKind.Null, denied.Data.GetProperty("deviceById").GetProperty("softwareInstallTimeline").ValueKind);
+        var error = Assert.Single(denied.Errors.EnumerateArray());
+        Assert.Equal(["deviceById", "softwareInstallTimeline"], error.GetProperty("path").EnumerateArray().Select(p => p.GetString()));
+        Assert.Equal("AUTH_NOT_AUTHORIZED", error.GetProperty("extensions").GetProperty("code").GetString());
     }
 
     [Fact]
@@ -413,6 +480,21 @@ public sealed class QueryTests(AzuriteFixture azurite)
         var events = r.Data.GetProperty("deviceById").GetProperty("installEvents");
         Assert.Equal(JsonValueKind.Array, events.ValueKind);
         return [.. events.EnumerateArray()];
+    }
+
+    private static List<JsonElement> TimelineEvents(GraphQLResponse r, string field) =>
+        [.. r.Data.GetProperty("deviceById").GetProperty(field).EnumerateArray()];
+
+    private static void AssertDetails(JsonElement timelineEvent, params (string Label, string Value, bool Mono)[] expected)
+    {
+        var details = timelineEvent.GetProperty("details").EnumerateArray().ToList();
+        Assert.Equal(expected.Length, details.Count);
+        foreach (var (want, got) in expected.Zip(details))
+        {
+            Assert.Equal(want.Label, got.GetProperty("label").GetString());
+            Assert.Equal(want.Value, got.GetProperty("value").GetString());
+            Assert.Equal(want.Mono, got.GetProperty("mono").GetBoolean());
+        }
     }
 
     private static List<string> Ids(GraphQLResponse r) => [.. Events(r).Select(e => e.GetProperty("id").GetString()!)];

@@ -1,0 +1,10 @@
+{
+  "id": "patch",
+  "field": "patchTimeline",
+  "name": "Patch",
+  "icon": "system_update_alt",
+  "color": "#1d4ed8",
+  "history": "patch",
+  "statuses": ["APPLIED", "PENDING", "FAILED"],
+  "contractVersion": 1
+}

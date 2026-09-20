@@ -1,85 +1,43 @@
 import { TestBed } from '@angular/core/testing';
 
+import { FOURTH_SOURCE, TIMELINE_SOURCES } from '../../../testing/timeline-test-data';
 import type { SectionState } from '../../timeline/section-state';
-import { SECTIONS, type SectionMeta } from '../../timeline/timeline.models';
+import type { TimelineSource } from '../../timeline/timeline-catalog';
 import { SectionBannerComponent } from './section-banner.component';
 
-// Plan §7, verbatim.
-const COPY = {
-  Patch: {
-    noAccess: "You don't have access to Patch data.",
-    unavailable: 'Patch service is currently unavailable — patch history is not shown.',
-  },
-  Vulnerability: {
-    noAccess: "You don't have access to Vulnerability data.",
-    unavailable:
-      'Vulnerability service is currently unavailable — vulnerability history is not shown.',
-  },
-  'Software Install': {
-    noAccess: "You don't have access to Software Install data.",
-    unavailable:
-      'Software Install service is currently unavailable — install history is not shown.',
-  },
-} as const;
-
-async function render(
-  section: SectionMeta,
-  state: SectionState<unknown> | null,
-): Promise<HTMLElement> {
+async function render(source: TimelineSource, state: SectionState<unknown> | null) {
   const fixture = TestBed.createComponent(SectionBannerComponent);
-  fixture.componentRef.setInput('section', section);
+  fixture.componentRef.setInput('section', source);
   fixture.componentRef.setInput('state', state);
   await fixture.whenStable();
   return fixture.nativeElement as HTMLElement;
 }
 
-const icon = (el: HTMLElement) => el.querySelector('mat-icon')?.textContent?.trim();
-const part = (el: HTMLElement, selector: string) => el.querySelector(selector)?.textContent?.trim();
-
 describe('SectionBannerComponent', () => {
-  for (const section of SECTIONS) {
-    const copy = COPY[section.name as keyof typeof COPY];
-
-    it(`${section.name}: no-access shows the lock and the exact copy`, async () => {
-      const el = await render(section, { kind: 'no-access' });
-      expect(el.classList).toContain('no-access');
-      expect(icon(el)).toBe('lock');
-      expect(el.querySelector('.copy')?.textContent).toBe(copy.noAccess);
-      expect(el.querySelector('[role="status"]')).not.toBeNull();
-    });
-
-    it(`${section.name}: unavailable shows the warning, the exact copy and the gateway message`, async () => {
-      const el = await render(section, {
-        kind: 'unavailable',
-        message: 'Unexpected Execution Error',
-      });
-      expect(el.classList).toContain('unavailable');
-      expect(icon(el)).toBe('warning');
-      expect(el.querySelector('.copy')?.textContent).toBe(copy.unavailable);
-      expect(el.querySelector('.detail')?.textContent).toBe(
-        'Gateway error: Unexpected Execution Error',
-      );
-      expect(el.querySelector('[role="alert"]')).not.toBeNull();
-    });
-  }
-
-  it('ok shows the section name and event count, no banner', async () => {
-    const el = await render(SECTIONS[0], { kind: 'ok', events: [1, 2, 3] });
-    expect(el.classList).toContain('ok');
-    expect(icon(el)).toBe(SECTIONS[0].icon);
-    expect(part(el, '.name')).toBe('Patch');
-    expect(part(el, '.count')).toBe('3 events');
-    expect(el.querySelector('.banner')).toBeNull();
+  it('renders catalog presentation for a new source and its event count', async () => {
+    const el = await render(FOURTH_SOURCE, { kind: 'ok', events: [1, 2] });
+    expect(el.dataset['section']).toBe(FOURTH_SOURCE.id);
+    expect(el.style.getPropertyValue('--source-color')).toBe(FOURTH_SOURCE.color);
+    expect(el.querySelector('mat-icon')?.textContent?.trim()).toBe(FOURTH_SOURCE.icon);
+    expect(el.querySelector('.name')?.textContent?.trim()).toBe(FOURTH_SOURCE.name);
+    expect(el.querySelector('.count')?.textContent?.trim()).toBe('2 events');
   });
 
-  it('ok with no events says 0 events', async () => {
-    const el = await render(SECTIONS[2], { kind: 'ok', events: [] });
-    expect(part(el, '.name')).toBe('Software Install');
-    expect(part(el, '.count')).toBe('0 events');
+  it('derives denied and unavailable copy from metadata', async () => {
+    const denied = await render(FOURTH_SOURCE, { kind: 'no-access' });
+    expect(denied.textContent).toContain("You don't have access to Certificate data.");
+    const unavailable = await render(FOURTH_SOURCE, {
+      kind: 'unavailable',
+      message: 'timeout',
+    });
+    expect(unavailable.textContent).toContain(
+      'Certificate service is currently unavailable — certificate history is not shown.',
+    );
+    expect(unavailable.textContent).toContain('Gateway error: timeout');
   });
 
-  it('null is loading', async () => {
-    const el = await render(SECTIONS[1], null);
+  it('shows metadata while loading', async () => {
+    const el = await render(TIMELINE_SOURCES[0], null);
     expect(el.classList).toContain('loading');
     expect(el.querySelector('[aria-busy="true"]')).not.toBeNull();
   });

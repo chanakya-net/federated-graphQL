@@ -24,6 +24,10 @@ type Device {
   patchEvents(since: DateTime, until: DateTime): [PatchEvent!]
     @authorize(policy: "ServiceAccess")
     @cost(weight: "10")
+  "Normalized patch timeline events. The date bounds are inclusive; null plus an error means denied or unavailable."
+  patchTimeline(since: DateTime, until: DateTime): [TimelineEvent!]
+    @authorize(policy: "ServiceAccess")
+    @cost(weight: "10")
 }
 
 "A catalog patch."
@@ -63,6 +67,23 @@ type PatchEvent {
 type PatchMatch {
   patchId: ID!
   deviceIds: [ID!]!
+}
+
+type TimelineDetail {
+  label: String! @shareable
+  value: String! @shareable
+  mono: Boolean! @shareable
+}
+
+type TimelineEvent {
+  id: ID! @shareable
+  occurredAt: DateTime! @shareable
+  label: String! @shareable
+  title: String! @shareable
+  subtitle: String! @shareable
+  status: String! @shareable
+  severity: String @shareable
+  details: [TimelineDetail!]! @shareable
 }
 
 "Defines when a policy shall be executed."
@@ -122,3 +143,5 @@ that can be used by the distributed GraphQL executor to resolve an entity by
 a stable key.
 """
 directive @lookup on FIELD_DEFINITION
+
+directive @shareable repeatable on OBJECT | FIELD_DEFINITION

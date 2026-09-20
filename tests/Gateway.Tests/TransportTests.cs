@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using SoR.Gateway.Tests.Support;
 using SoR.Gateway.Transport;
 
@@ -13,6 +15,46 @@ namespace SoR.Gateway.Tests;
 /// </summary>
 public sealed class TransportTests
 {
+    [Fact]
+    public async Task Fourth_configured_client_uses_its_url_timeout_and_forwarded_authorization()
+    {
+        await using var audit = await FakeSubgraph.RespondingAsync("{}");
+        var context = new DefaultHttpContext();
+        context.Request.Headers.Authorization = "Bearer fourth-source-token";
+        var services = new ServiceCollection()
+            .AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = context })
+            .AddTransient<ForwardAuthorizationHandler>();
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [SubgraphClientRegistration.UrlVariable("Audit")] = audit.Url.ToString(),
+            [SubgraphClientRegistration.TimeoutVariable("Audit")] = "9",
+        }).Build();
+
+        var registration = Assert.Single(SubgraphClientRegistration.Add(services, config, ["Audit"], TimeSpan.FromSeconds(5)));
+        await using var provider = services.BuildServiceProvider();
+        using var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient("Audit");
+        using var response = await client.PostAsync("", new StringContent("{}"));
+
+        Assert.Equal(audit.Url, registration.Url);
+        Assert.Equal(TimeSpan.FromSeconds(9), client.Timeout);
+        Assert.Equal("Bearer fourth-source-token", Assert.Single(audit.Requests).Authorization);
+    }
+
+    [Fact]
+    public void Far_source_without_a_configured_url_is_rejected()
+    {
+        var services = new ServiceCollection()
+            .AddSingleton<IHttpContextAccessor>(new HttpContextAccessor())
+            .AddTransient<ForwardAuthorizationHandler>();
+        var config = new ConfigurationBuilder().AddInMemoryCollection().Build();
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            SubgraphClientRegistration.Add(services, config, ["Compliance"], TimeSpan.FromSeconds(5)));
+
+        Assert.Contains("SUBGRAPH_COMPLIANCE_URL", error.Message, StringComparison.Ordinal);
+        Assert.Contains("FAR", error.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Header_is_forwarded_unchanged_to_every_subgraph()
     {
@@ -54,11 +96,10 @@ public sealed class TransportTests
         await using var app = GatewayApp.Create(timeoutSeconds: seconds);
         var factory = app.Services.GetRequiredService<IHttpClientFactory>();
 
-        foreach (var name in SubgraphClientNames.All)
+        foreach (var name in GatewayApp.TestSubgraphs.All)
         {
             using var client = factory.CreateClient(name);
-            Assert.Equal(TimeSpan.FromSeconds(name == SubgraphClientNames.DeviceSearch
-                ? GatewaySettings.DefaultSearchTimeoutSeconds : seconds), client.Timeout);
+            Assert.Equal(TimeSpan.FromSeconds(seconds), client.Timeout);
         }
     }
 

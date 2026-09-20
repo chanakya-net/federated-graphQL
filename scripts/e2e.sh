@@ -22,7 +22,7 @@ UI="http://localhost:$(env_value UI_PORT 4200)"
 TIMEOUT_S=$(env_value SUBGRAPH_TIMEOUT_SECONDS 5)
 EPOCH="2026-09-01T00:00:00Z" # SeedConstants.Epoch (contracts/seeding.md); every seeded event is in the year before it
 SERVICES="postgres mongo azurite device-directory patch vulnerability software-install device-search fusion-gateway angular-ui"
-TOTAL=28 # Original timeline/reverse lookups plus server search, permission/tenant and required-source failure checks
+TOTAL=29 # Existing APIs/search plus the metadata-driven normalized timeline contract
 
 for tool in curl jq docker; do
   command -v "$tool" >/dev/null || { echo "e2e: '$tool' is required" >&2; exit 2; }
@@ -141,6 +141,10 @@ started=$(date +%s)
 # ---------------------------------------------------------------------------------------------------------------
 # Federation, access and tenant isolation.
 
+begin dynamic_timeline_contract
+TIMELINE_GATEWAY_URL="${GW%/graphql}" TIMELINE_UI_URL="$UI" scripts/check-timeline.sh || fail "dynamic timeline contract failed"
+pass
+
 begin alice_full_timeline
 device alice dev-00001
 expect_http 200
@@ -207,7 +211,11 @@ outage patch stop
 device alice dev-00001
 expect_http 200
 expect 'down("patchEvents") and ok("vulnerabilityEvents") and ok("installEvents")'
-pass "code: $(jqb '[errs_at("patchEvents")[] | .extensions.code? // "none"] | unique | join(", ")')"
+# The new generic UI contract must preserve the same independent degradation as the domain APIs.
+gql "$(tok alice)" '{ device(id: "dev-00001") { id patchTimeline { id } vulnerabilityTimeline { id } softwareInstallTimeline { id } } }'
+expect_http 200
+expect 'down("patchTimeline") and ok("vulnerabilityTimeline") and ok("softwareInstallTimeline")'
+pass "legacy and normalized fields both preserve healthy sources"
 
 begin patch_stopped_is_fast
 expect_secs 0 3

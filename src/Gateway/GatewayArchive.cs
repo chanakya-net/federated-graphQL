@@ -1,4 +1,8 @@
 using HotChocolate.Fusion.Packaging;
+using HotChocolate.Buffers;
+using HotChocolate.Language;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace SoR.Gateway;
 
@@ -9,7 +13,7 @@ namespace SoR.Gateway;
 /// </summary>
 public static class GatewayArchive
 {
-    public static async Task EnsureUsableAsync(string path, CancellationToken cancellationToken = default)
+    public static async Task<GatewayArchiveSnapshot> LoadSnapshotAsync(string path, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(path))
         {
@@ -19,13 +23,24 @@ public static class GatewayArchive
 
         try
         {
-            using var archive = FusionArchive.Open(path, FusionArchiveMode.Read);
+            var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+            var schemaHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var archive = FusionArchive.Open(stream, FusionArchiveMode.Read, leaveOpen: false, new FusionArchiveOptions());
             var format = await archive.GetLatestSupportedGatewayFormatAsync(cancellationToken);
             using var configuration = await archive.TryGetGatewayConfigurationAsync(format, cancellationToken);
             if (configuration is null)
             {
                 throw new InvalidDataException($"no gateway configuration for format {format}");
             }
+            await using var schemaStream = await configuration.OpenReadSchemaAsync(cancellationToken);
+            using var reader = new StreamReader(schemaStream);
+            var schema = Utf8GraphQLParser.Parse(await reader.ReadToEndAsync(cancellationToken));
+            var names = (await archive.GetSourceSchemaNamesAsync(cancellationToken)).ToArray();
+            if (names.Length == 0 || names.Any(string.IsNullOrWhiteSpace) || names.Distinct(StringComparer.Ordinal).Count() != names.Length)
+                throw new InvalidDataException("archive sourceSchemas must be non-empty and unique");
+            var settings = new JsonDocumentOwner(JsonDocument.Parse(configuration.Settings.RootElement.GetRawText()));
+            return new(schema, settings, names, schemaHash);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -34,3 +49,9 @@ public static class GatewayArchive
         }
     }
 }
+
+public sealed record GatewayArchiveSnapshot(
+    DocumentNode Schema,
+    JsonDocumentOwner Settings,
+    IReadOnlyList<string> SourceSchemaNames,
+    string SchemaHash);

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Supplies the GraphQL ID and Fusion @shareable attributes used by the wire contract. -->
+    <PackageReference Include="HotChocolate.AspNetCore" />
+  </ItemGroup>
+</Project>

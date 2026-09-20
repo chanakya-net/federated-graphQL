@@ -18,7 +18,8 @@ public sealed class SchemaTests(SchemaTests.Fixture fixture) : IClassFixture<Sch
     }
 
     private static readonly string[] DeviceFields =
-        ["id", "hostname", "os", "ipAddress", "lastSeenAt", "tenantId", "patchEvents", "vulnerabilityEvents", "installEvents"];
+        ["id", "hostname", "os", "ipAddress", "lastSeenAt", "tenantId", "patchEvents", "vulnerabilityEvents", "installEvents",
+         "patchTimeline", "vulnerabilityTimeline", "softwareInstallTimeline"];
 
     [Fact]
     public async Task Gateway_starts_with_committed_archive()
@@ -44,11 +45,31 @@ public sealed class SchemaTests(SchemaTests.Fixture fixture) : IClassFixture<Sch
     }
 
     [Fact]
-    public async Task Device_has_the_nine_fields()
+    public async Task Device_has_the_twelve_fields()
     {
         var fields = await FieldNamesAsync("Device");
 
         Assert.Equal(DeviceFields.Order(StringComparer.Ordinal), fields.Order(StringComparer.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("patchTimeline")]
+    [InlineData("vulnerabilityTimeline")]
+    [InlineData("softwareInstallTimeline")]
+    public async Task Normalized_timeline_fields_have_the_common_nullable_contract(string field)
+    {
+        var type = await FieldTypeAsync("Device", field);
+        Assert.Equal("LIST", type.GetProperty("kind").GetString());
+        Assert.Equal("NON_NULL", type.GetProperty("ofType").GetProperty("kind").GetString());
+        Assert.Equal("TimelineEvent", type.GetProperty("ofType").GetProperty("ofType").GetProperty("name").GetString());
+
+        var arguments = await FieldArgumentsAsync("Device", field);
+        Assert.Equal(["since", "until"], arguments.Select(argument => argument.GetProperty("name").GetString()).Order(StringComparer.Ordinal));
+        Assert.All(arguments, argument =>
+        {
+            Assert.Equal("SCALAR", argument.GetProperty("type").GetProperty("kind").GetString());
+            Assert.Equal("DateTime", argument.GetProperty("type").GetProperty("name").GetString());
+        });
     }
 
     [Theory]
@@ -177,5 +198,16 @@ public sealed class SchemaTests(SchemaTests.Fixture fixture) : IClassFixture<Sch
         return response.Data.GetProperty("__type").GetProperty("fields").EnumerateArray()
             .Single(f => f.GetProperty("name").GetString() == fieldName)
             .GetProperty("type");
+    }
+
+    private async Task<IReadOnlyList<JsonElement>> FieldArgumentsAsync(string typeName, string fieldName)
+    {
+        var response = await fixture.App.QueryAsync(
+            $$"""{ __type(name: "{{typeName}}") { fields { name args { name type { kind name } } } } }""",
+            Tokens.Alice);
+        Assert.False(response.HasErrors, response.ToString());
+        return response.Data.GetProperty("__type").GetProperty("fields").EnumerateArray()
+            .Single(f => f.GetProperty("name").GetString() == fieldName)
+            .GetProperty("args").EnumerateArray().Select(argument => argument.Clone()).ToArray();
     }
 }

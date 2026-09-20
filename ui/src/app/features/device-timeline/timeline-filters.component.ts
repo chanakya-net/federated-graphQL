@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, model } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, input, model } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
@@ -8,14 +8,8 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 
-import {
-  DEFAULT_FILTER,
-  SECTIONS,
-  SOURCES,
-  STATUSES,
-  type Source,
-  type TimelineFilter,
-} from '../../timeline/timeline.models';
+import { defaultTimelineFilter, type TimelineFilter } from '../../timeline/timeline.models';
+import type { TimelineSource } from '../../timeline/timeline-catalog';
 
 /** Start of the local day, as an ISO instant. */
 export function startOfDayIso(date: Date): string {
@@ -62,8 +56,8 @@ export function endOfDayIso(date: Date): string {
         [value]="sourceList()"
         (change)="setSources($event.value)"
       >
-        @for (s of sections; track s.source) {
-          <mat-button-toggle [value]="s.source">
+        @for (s of sources(); track s.id) {
+          <mat-button-toggle [value]="s.id">
             <mat-icon class="toggle-icon">{{ s.icon }}</mat-icon
             >{{ s.name }}
           </mat-button-toggle>
@@ -104,7 +98,7 @@ export function endOfDayIso(date: Date): string {
           (valueChange)="setStatuses($event)"
           placeholder="All"
         >
-          @for (s of statuses; track s) {
+          @for (s of statuses(); track s) {
             <mat-option [value]="s">{{ s }}</mat-option>
           }
         </mat-select>
@@ -152,23 +146,30 @@ export function endOfDayIso(date: Date): string {
 })
 export class TimelineFiltersComponent {
   readonly filter = model.required<TimelineFilter>();
+  readonly sources = input.required<readonly TimelineSource[]>();
+  readonly statuses = input.required<readonly string[]>();
 
-  protected readonly sections = SECTIONS;
-  protected readonly statuses = STATUSES;
   protected readonly range = new FormGroup({
     start: new FormControl<Date | null>(null),
     end: new FormControl<Date | null>(null),
   });
 
   protected readonly sourceList = computed(() =>
-    SOURCES.filter((s) => this.filter().sources.has(s)),
+    this.sources()
+      .map((source) => source.id)
+      .filter((source) => this.filter().sources.has(source)),
   );
   protected readonly statusList = computed(() => [...this.filter().statuses]);
   protected readonly hasRange = computed(() => !!this.filter().since || !!this.filter().until);
   protected readonly isDefault = computed(() => {
     const f = this.filter();
     return (
-      f.sources.size === SOURCES.length && !f.since && !f.until && f.statuses.size === 0 && !f.text
+      f.sources.size === this.sources().length &&
+      this.sources().every((source) => f.sources.has(source.id)) &&
+      !f.since &&
+      !f.until &&
+      f.statuses.size === 0 &&
+      !f.text
     );
   });
 
@@ -198,7 +199,7 @@ export class TimelineFiltersComponent {
     this.patch({ since: undefined, until: undefined });
   }
 
-  protected setSources(value: Source[]): void {
+  protected setSources(value: string[]): void {
     this.patch({ sources: new Set(value) });
   }
 
@@ -211,7 +212,7 @@ export class TimelineFiltersComponent {
   }
 
   protected reset(): void {
-    this.filter.set(DEFAULT_FILTER);
+    this.filter.set(defaultTimelineFilter(this.sources()));
   }
 
   private patch(change: Partial<TimelineFilter>): void {

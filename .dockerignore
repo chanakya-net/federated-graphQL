@@ -1,5 +1,5 @@
 # Build context for every root-context image (src/*/Dockerfile, context = repo root).
-# Only Directory.*.props, global.json, src/ and gateway/gateway.far are actually needed.
+# Only Directory.*.props, global.json, src/ and the gateway FAR/catalog are actually needed.
 
 # Build output and dependencies
 **/bin
@@ -19,6 +19,7 @@ ui
 .github
 .claude
 .codegraph
+.superpowers
 spike
 tests
 docs

@@ -1,3 +1,5 @@
+using SoR.Shared.Timeline;
+
 namespace SoR.Patch.GraphQL;
 
 // Hot Chocolate names enum values UPPER_CASE (Applied -> APPLIED), which are the contract names and also
@@ -39,6 +41,31 @@ public sealed record PatchEvent(
     DateTimeOffset OccurredAt,
     PatchStatus Status,
     PatchInfo Patch);
+
+internal static class TimelineAdapters
+{
+    public static TimelineEvent FromPatch(PatchEvent e)
+    {
+        var status = StoredEnum.ToStored(e.Status);
+        var severity = StoredEnum.ToStored(e.Patch.Severity);
+        return new TimelineEvent(
+            e.Id,
+            e.OccurredAt,
+            e.Patch.KbId,
+            e.Patch.Title,
+            $"{e.Patch.KbId} · {e.Patch.Vendor}",
+            status,
+            severity,
+            [
+                new("KB", e.Patch.KbId, true),
+                new("Vendor", e.Patch.Vendor, false),
+                new("Severity", severity, false),
+                new("Status", status, false),
+                new("Patch ID", e.Patch.Id, true),
+                new("Event ID", e.Id, true),
+            ]);
+    }
+}
 
 /// <summary>
 /// One page of the reverse lookup (<c>Query.devicesWithPatches</c>). <see cref="Device"/> is the entity stub: the

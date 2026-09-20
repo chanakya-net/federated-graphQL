@@ -1,7 +1,31 @@
 using HotChocolate.Language;
 using SoR.Gateway;
+using SoR.Gateway.Timeline;
 using SoR.Gateway.Transport;
 using SoR.Shared.Auth;
+
+if (args is ["timeline-catalog", "generate", ..])
+{
+    var options = args.Skip(2).Chunk(2).ToDictionary(pair => pair[0], pair => pair.Length == 2 ? pair[1] : "", StringComparer.Ordinal);
+    static string Required(IReadOnlyDictionary<string, string> options, string name) =>
+        options.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? Path.GetFullPath(value)
+            : throw new ArgumentException($"Missing {name}. Usage: timeline-catalog generate --archive PATH --output PATH --source-root PATH --schemas PATH");
+    var generated = TimelineCatalogGenerator.GenerateFromDirectories(
+        Required(options, "--archive"),
+        Required(options, "--output"),
+        Required(options, "--source-root"),
+        Required(options, "--schemas"));
+    Console.WriteLine($"generated {generated.Sources.Count} timeline sources paired with {generated.SchemaHash}");
+    return;
+}
+
+if (args is ["timeline-catalog", "source-projects", "--settings", var settingsDirectory])
+{
+    foreach (var source in TimelineCatalogGenerator.SourceProjects(Path.GetFullPath(settingsDirectory)))
+        Console.WriteLine($"{source.SchemaBaseName}\t{source.ProjectName}");
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
@@ -15,19 +39,20 @@ if (timeoutSeconds <= 0)
 }
 
 var timeout = TimeSpan.FromSeconds(timeoutSeconds);
-var searchTimeoutSeconds = config.GetValue(GatewaySettings.SearchTimeoutVariable, GatewaySettings.DefaultSearchTimeoutSeconds);
-if (searchTimeoutSeconds <= 0)
-    throw new InvalidOperationException($"{GatewaySettings.SearchTimeoutVariable} must be a positive number of seconds.");
 var archive = Path.GetFullPath(config[GatewaySettings.ArchiveVariable] ?? Path.Combine(AppContext.BaseDirectory, "gateway.far"));
-await GatewayArchive.EnsureUsableAsync(archive);   // Fusion itself would wait forever on a missing or corrupt archive
+var archiveSnapshot = await GatewayArchive.LoadSnapshotAsync(archive);   // immutable paired snapshot; no live FAR reload
+var catalogPath = Path.GetFullPath(config[GatewaySettings.CatalogVariable] ?? Path.Combine(Path.GetDirectoryName(archive)!, "timeline-sources.json"));
+var timelineCatalog = TimelineSourceCatalogLoader.Load(catalogPath, archiveSnapshot.SchemaHash, archive, archiveSnapshot.Schema);
 
 builder.Services.AddDevJwtAuthentication(config);   // signature + expiry only; also the "auth-config" health check
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddTransient<ForwardAuthorizationHandler>();
+builder.Services.AddSingleton(timelineCatalog);
 builder.Services.AddHealthChecks();   // healthy without any subgraph: the gateway serves from the archive
 
 var gateway = builder
     .AddGraphQLGateway()
-    .AddFileSystemConfiguration(archive)
+    .AddInMemoryConfiguration(archiveSnapshot.Schema, archiveSnapshot.Settings)
     // HC 16 default security turns introspection off outside Development; Nitro and the schema checks need it.
     .DisableIntrospection(false)
     .ModifyRequestOptions(o =>
@@ -41,35 +66,23 @@ var gateway = builder
         o.AllowErrorHandlingModeOverride = false;
     });
 
-// One code-level client configuration per source schema: its HttpClient name is the source-schema name, so the
-// timeout and header forwarding apply, and its URL (from env) replaces the one baked into the archive. There is
-// deliberately no "fusion" client: a source schema left to it would call out anonymously with a 100 s timeout.
-var unconfigured = new List<string>();
-foreach (var name in SubgraphClientNames.All)
+// One generated client registration per FAR source schema: the HttpClient name is the source-schema name, so the
+// configured timeout and header forwarding apply, and its URL replaces the one baked into the archive. Startup
+// rejects every source without a URL so none can fall through to Fusion's anonymous default transport.
+var registrations = SubgraphClientRegistration.Add(builder.Services, config, archiveSnapshot.SourceSchemaNames, timeout);
+foreach (var registration in registrations)
 {
-    var variable = SubgraphClientNames.UrlVariable(name);
-    var url = config[variable];
-    if (string.IsNullOrWhiteSpace(url))
-    {
-        unconfigured.Add(variable);
-        url = $"http://localhost:0/unconfigured/{name}";   // refused at once: that subgraph's fields fail, startup does not
-    }
-
-    builder.Services
-        .AddHttpClient(name, c => c.Timeout = name == SubgraphClientNames.DeviceSearch
-            ? TimeSpan.FromSeconds(searchTimeoutSeconds) : timeout)
-        .AddHttpMessageHandler<ForwardAuthorizationHandler>();
-    gateway.AddHttpClientConfiguration(name, new Uri(url));
+    gateway.AddHttpClientConfiguration(registration.Name, registration.Url);
 }
 
 var app = builder.Build();
-if (unconfigured.Count > 0)
-{
-    app.Logger.LogWarning("Not set: {Variables}. Those subgraphs are unreachable.", string.Join(", ", unconfigured));
-}
-
 app.UseAuthentication();
 app.UseMiddleware<EdgeAuthMiddleware>();
 app.MapHealthChecks("/health");
+app.MapGet("/timeline-sources", (HttpContext context, TimelineSourceCatalogSnapshot snapshot) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Bytes(snapshot.Json, "application/json; charset=utf-8");
+});
 app.MapGraphQL();   // POST /graphql; GET /graphql/ serves the embedded Nitro UI (GET /graphql -> 301)
 await app.RunAsync();

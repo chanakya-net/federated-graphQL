@@ -2,11 +2,11 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 import { MatIconModule } from '@angular/material/icon';
 
 import type { SectionState } from '../../timeline/section-state';
-import type { SectionMeta } from '../../timeline/timeline.models';
+import type { TimelineSource } from '../../timeline/timeline-catalog';
 
 // Banner copy, exact (plan §7).
-const noAccessCopy = (s: SectionMeta) => `You don't have access to ${s.name} data.`;
-const unavailableCopy = (s: SectionMeta) =>
+const noAccessCopy = (s: TimelineSource) => `You don't have access to ${s.name} data.`;
+const unavailableCopy = (s: TimelineSource) =>
   `${s.name} service is currently unavailable — ${s.history} history is not shown.`;
 
 /**
@@ -20,7 +20,7 @@ const unavailableCopy = (s: SectionMeta) =>
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[class]': 'kind()',
-    '[attr.data-section]': 'section().key',
+    '[attr.data-section]': 'section().id',
     '[style.--source-color]': 'section().color',
   },
   template: `
@@ -74,7 +74,7 @@ const unavailableCopy = (s: SectionMeta) =>
   styleUrl: './section-banner.component.scss',
 })
 export class SectionBannerComponent {
-  readonly section = input.required<SectionMeta>();
+  readonly section = input.required<TimelineSource>();
   readonly state = input.required<SectionState<unknown> | null>();
 
   protected readonly kind = computed(() => this.state()?.kind ?? 'loading');

@@ -26,15 +26,23 @@ dotnet tool restore >/dev/null   # pinned Nitro CLI (.config/dotnet-tools.json)
 mkdir -p gateway
 
 # Composing into an existing archive merges into it (a removed subgraph would linger), so start from nothing.
-# Each <name>.graphqls is paired with <name>-settings.json in the same folder. The archive lists source schemas
-# in argument order, so the order is fixed here to keep the bytes stable (docs/version-facts.md §3).
+# Each <name>.graphqls is paired with <name>-settings.json in the same folder. Sorted settings paths give a stable
+# order while allowing a compatible source to be added without editing this script.
 rm -f gateway/gateway.far
-dotnet nitro fusion compose \
-  -f "$SRC/device-directory.graphqls" \
-  -f "$SRC/patch.graphqls" \
-  -f "$SRC/vulnerability.graphqls" \
-  -f "$SRC/software-install.graphqls" \
-  -f "$SRC/device-search.graphqls" \
-  -a gateway/gateway.far
+inputs=()
+for settings in "$SRC"/*-settings.json; do
+  schema="${settings%-settings.json}.graphqls"
+  [ -f "$schema" ] || { echo "missing schema paired with $settings: $schema" >&2; exit 1; }
+  inputs+=( -f "$schema" )
+done
+[ "${#inputs[@]}" -gt 0 ] || { echo "no schema settings found in $SRC" >&2; exit 1; }
+dotnet nitro fusion compose "${inputs[@]}" -a gateway/gateway.far
 
-echo "composed gateway/gateway.far from $SRC/"
+dotnet run --project src/Gateway/Gateway.csproj -c Release --no-launch-profile -- \
+  timeline-catalog generate \
+  --archive "$ROOT/gateway/gateway.far" \
+  --output "$ROOT/gateway/timeline-sources.json" \
+  --source-root "$ROOT/src" \
+  --schemas "$ROOT/$SRC"
+
+echo "composed gateway/gateway.far and gateway/timeline-sources.json from $SRC/"

@@ -3,7 +3,13 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
 import type { FieldView } from '../../finder/field-state';
-import type { SectionMeta } from '../../timeline/timeline.models';
+
+interface SectionMeta {
+  source: string;
+  name: string;
+  icon: string;
+  color: string;
+}
 
 /**
  * How one category answered the sets query, in the category's colour, with the timeline's vocabulary:

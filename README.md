@@ -19,6 +19,7 @@ Device Directory before returning the final result).
 | [`docs/version-facts.md`](docs/version-facts.md) | Pinned versions, verified commands, deviations. **Wins over the phase docs** |
 | [`contracts/`](contracts/README.md) | Frozen SDL, HTTP/env, token, error and seeding contracts (tag `contracts-v1`) |
 | [`spike/`](spike/README.md) | Phase 0 throwaway spike (not in the solution) |
+| [`docs/timeline-sources.md`](docs/timeline-sources.md) | Add timeline sources without rebuilding the UI |
 | [`docs/demo.md`](docs/demo.md) | 10-minute demo runbook: commands, expected screens, recovery per step |
 | [`docs/e2e-report.md`](docs/e2e-report.md) | Phase 6 end-to-end report: fresh-clone timing, scripted scenarios, manual UI checklist |
 
@@ -55,6 +56,7 @@ UI (P5): `cd ui && npm ci && npm test` — no Docker (Vitest + jsdom, recorded g
 
 ```
 src/Shared.Seeding       canonical 12 000-device catalog + deterministic RNG (every subgraph seeds from it)
+src/Shared               common normalized timeline event/detail contract
 src/Shared.Auth          dev JWT validation, ServiceAccess policy, ICallerContext, DevTokenFactory
 src/DeviceDirectory      Device owner subgraph (PostgreSQL)        — Phase 2B
 src/Patch                Patch subgraph (MongoDB)                  — Phase 3A
@@ -65,7 +67,7 @@ src/Gateway              Fusion v2 gateway                         — Phase 4
 src/TokenGenerator       mints one JWT per dummy user              — Phase 2A
 tests/*.Tests            one xunit project per src project; tests/fixtures holds Phase 0 gateway responses
 contracts/               frozen contracts (Phase 1)
-schemas/, gateway/       exported SDL and the composed gateway.far (Phase 4 scripts; contracts-v2/v3 = reverse lookups)
+schemas/, gateway/       exported SDL, composed gateway.far, and its matching timeline source catalog
 infra/, ui/              compose infrastructure (Phase 2C), Angular UI (Phase 5)
 ```
 
@@ -115,19 +117,19 @@ an empty `pgdata` volume. A healthy service is one whose `/health` answers 200 (
 
 ### Schema composition
 
-The gateway serves the composed archive `gateway/gateway.far`, built offline from the four exported subgraph
+The gateway serves the composed archive `gateway/gateway.far`, built offline from the registered subgraph
 schemas and copied into the gateway image as is (the image build never composes):
 
 ```bash
-scripts/compose-schema.sh                  # export schemas/*.graphqls from the subgraph code, then compose gateway/gateway.far
+scripts/compose-schema.sh                  # export schemas/*.graphqls from the subgraph code, then compose FAR + timeline source catalog
 scripts/compose-schema.sh --no-export      # compose the committed schemas/ only
-scripts/check-schema-drift.sh              # re-export + compose; exit 1 if schemas/ or gateway.far changed (CI job schema-drift)
+scripts/check-schema-drift.sh              # re-export + compose; exit 1 if schemas/, FAR or timeline source catalog changed (CI job schema-drift)
 ```
 
 **After any subgraph schema change, run `scripts/compose-schema.sh` and commit `schemas/` and
-`gateway/gateway.far`.** `schemas/<name>-settings.json` holds each source schema's name and in-compose URL; export
+`gateway/gateway.far` and `gateway/timeline-sources.json`.** `schemas/<name>-settings.json` holds each source schema's name and in-compose URL; export
 keeps it as committed. The gateway overrides the URLs from `SUBGRAPH_<NAME>_URL` and refuses to start if the
-archive is missing or unreadable.
+archive or its matching timeline catalog is missing, invalid, or out of sync. Deploy these artifacts together and restart the gateway. See [timeline sources](docs/timeline-sources.md).
 
 ### Get a token
 
@@ -144,10 +146,10 @@ TOKEN=$(docker compose run --rm -T token-generator --user alice)                
 bash 3.2+, curl, jq and Docker Compose:
 
 ```bash
-scripts/e2e.sh     # about 1 min; prints PASS/FAIL per scenario, ends with "e2e: 26/26 passed"
+scripts/e2e.sh     # about 1 min; prints PASS/FAIL per scenario, ends with "e2e: 29/29 passed"
 ```
 
-It covers federation (the query plan fans out after Device Directory), each demo user's access, tenant isolation,
+It covers the generated timeline source catalog, generic event queries/details, federation (the query plan fans out after Device Directory), each demo user's access, tenant isolation,
 401s, each domain service stopped (fails fast) and paused (bounded by the 5 s timeout), Device Directory down,
 tenant-scoped search, the hidden `deviceById` lookup, `since`/`until` pushdown, and the reverse lookups (Patch
 first, then one batched Device Directory completion; denial; tenant scoping; a patch AND a CVE through the
@@ -158,32 +160,10 @@ timeout come from the shell, else `.env`. Results and the manual UI checklist ar
 
 ## Find devices (reverse lookups with AND / OR)
 
-The UI's second page (`/find`, toolbar "Find devices") turns the graph around: build an expression from
-patches, CVEs and software picked from their catalogs, joined by **AND** / **OR** (AND binds first, so
-`A AND B OR C` is `(A AND B) OR C`), press **Find**, and get one row per matching device of your tenant with
-what matched in each source, linking to the device's timeline. The pickers search the catalogs
-(`patches(search:)`, `cves(search:)`, `software(search:)`); the expression is evaluated in two steps because
-the gateway can join entities but cannot intersect result sets across subgraphs:
-
-```graphql
-# 1. per category in the expression: the device-id set of every item (ids only, sorted)
-query { devicesWithPatches(patchIds: ["patch-0128", "patch-0282"], first: 1) { matches { patchId deviceIds } } }
-# the browser evaluates AND / OR over those sets, sorts and pages the ids, then
-# 2. per category: the events of exactly the visible devices, whose stubs the gateway completes via Device Directory
-query { devicesWithPatches(patchIds: ["patch-0128"], deviceIds: ["dev-00001", "dev-00013"], first: 25) {
-  totalCount items { device { id hostname os } events { occurredAt status patch { kbId } } } } }
-```
-
-`devicesWithCves(cveIds:)` and `devicesWithSoftware(software: [{ name: "Git", version: null }])` work the same.
-The domain subgraph answers with `Device` stubs (`id` only); the gateway completes `hostname`, `os`, ... with
-**one** variable-batched `device(id)` call to Device Directory (`docs/version-facts.md` §8, 2026-09-20).
-Access and tenant rules are the timeline's: a user without the service gets `null` plus `AUTH_NOT_AUTHORIZED`
-for that category only (its filters count as matching nothing and the UI says so), a stopped subgraph gets
-"unavailable", and with Device Directory down the sets still work but no page can be completed. Selections are
-capped at 50 keys per query and the expression at 20 filters. Patch and Vulnerability answer by index
-(`{tenantId, patchId, deviceId}` in MongoDB, `(tenant_id, cve_id, device_id)` in PostgreSQL); SoftwareInstall
-keeps a reverse index blob (`_index/software.json`) that the seeder writes and an older container rebuilds from
-its device blobs at startup.
+The UI's second page (`/find`, toolbar "Find devices") builds an expression from backend-advertised
+catalogs, joined by **AND** / **OR** (AND binds first). One `findDevices` request returns the complete
+server-filtered page, with matched events and links to device timelines. The browser does not compute
+device sets. See [server-side cross-domain search](#server-side-cross-domain-search) below.
 
 ## Demo
 

@@ -4,10 +4,12 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY Directory.Build.props Directory.Packages.props global.json ./
+COPY src/Shared/Shared.csproj src/Shared/
 COPY src/Shared.Seeding/Shared.Seeding.csproj src/Shared.Seeding/
 COPY src/Shared.Auth/Shared.Auth.csproj src/Shared.Auth/
 COPY src/Patch/Patch.csproj src/Patch/
 RUN dotnet restore src/Patch/Patch.csproj
+COPY src/Shared src/Shared
 COPY src/Shared.Seeding src/Shared.Seeding
 COPY src/Shared.Auth src/Shared.Auth
 COPY src/Patch src/Patch

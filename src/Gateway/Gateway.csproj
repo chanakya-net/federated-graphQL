@@ -17,6 +17,8 @@
     -->
     <None Include="../../gateway/gateway.far" Link="gateway.far" CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" Condition="Exists('../../gateway/gateway.far')" />
+    <None Include="../../gateway/timeline-sources.json" Link="timeline-sources.json" CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" Condition="Exists('../../gateway/timeline-sources.json')" />
   </ItemGroup>
 
   <ItemGroup>

@@ -17,6 +17,18 @@ public sealed class QueryTests(MongoFixture mongo)
     private const string WindowQuery =
         "query($id: ID!, $since: DateTime, $until: DateTime) { deviceById(id: $id) { id patchEvents(since: $since, until: $until) { id occurredAt } } }";
 
+    private const string TimelineQuery = """
+        query($id: ID!, $since: DateTime, $until: DateTime) {
+          deviceById(id: $id) {
+            id
+            patchTimeline(since: $since, until: $until) {
+              id occurredAt label title subtitle status severity
+              details { label value mono }
+            }
+          }
+        }
+        """;
+
     private const string PatchesQuery =
         "query($search: String, $first: Int!, $offset: Int!) { patches(search: $search, first: $first, offset: $offset) { id kbId title severity vendor releasedAt } }";
 
@@ -66,6 +78,62 @@ public sealed class QueryTests(MongoFixture mongo)
             Assert.Equal(patch.Vendor, p.GetProperty("vendor").GetString());
             Assert.Equal(new DateTimeOffset(patch.ReleasedAt), p.GetProperty("releasedAt").GetDateTimeOffset());
         }
+    }
+
+    [Fact]
+    public async Task PatchTimeline_projects_complete_normalized_events()
+    {
+        var app = await mongo.SeededAppAsync();
+        var expected = Expected.NewestFirst(Expected.EventsOf(1));
+        var catalog = PatchSeedData.BuildCatalog().ToDictionary(p => p.Id);
+
+        var r = await app.QueryAsync(TimelineQuery, Tokens.Alice, new { id = "dev-00001" });
+
+        Assert.False(r.HasErrors, r.ToString());
+        var events = TimelineEvents(r, "patchTimeline");
+        Assert.Equal(expected.Select(e => e.Id), events.Select(e => e.GetProperty("id").GetString()));
+        foreach (var (want, got) in expected.Zip(events))
+        {
+            var patch = catalog[want.PatchId];
+            Assert.Equal(new DateTimeOffset(want.OccurredAt), got.GetProperty("occurredAt").GetDateTimeOffset());
+            Assert.Equal(patch.KbId, got.GetProperty("label").GetString());
+            Assert.Equal(patch.Title, got.GetProperty("title").GetString());
+            Assert.Equal($"{patch.KbId} · {patch.Vendor}", got.GetProperty("subtitle").GetString());
+            Assert.Equal(want.Status, got.GetProperty("status").GetString());
+            Assert.Equal(patch.Severity, got.GetProperty("severity").GetString());
+            AssertDetails(got,
+                ("KB", patch.KbId, true),
+                ("Vendor", patch.Vendor, false),
+                ("Severity", patch.Severity, false),
+                ("Status", want.Status, false),
+                ("Patch ID", patch.Id, true),
+                ("Event ID", want.Id, true));
+        }
+    }
+
+    [Fact]
+    public async Task PatchTimeline_preserves_date_tenant_and_authorization_rules()
+    {
+        var app = await mongo.SeededAppAsync();
+        var all = Expected.NewestFirst(Expected.EventsOf(7));
+        var since = all[^2].OccurredAt;
+        var until = all[1].OccurredAt;
+
+        var window = await app.QueryAsync(TimelineQuery, Tokens.Alice,
+            new { id = "dev-00007", since = Iso(since), until = Iso(until) });
+        Assert.False(window.HasErrors, window.ToString());
+        Assert.Equal(all.Where(e => e.OccurredAt >= since && e.OccurredAt <= until).Select(e => e.Id),
+            TimelineEvents(window, "patchTimeline").Select(e => e.GetProperty("id").GetString()));
+
+        var crossTenant = await app.QueryAsync(TimelineQuery, Tokens.Dave, new { id = "dev-00001" });
+        Assert.False(crossTenant.HasErrors, crossTenant.ToString());
+        Assert.Empty(TimelineEvents(crossTenant, "patchTimeline"));
+
+        var denied = await app.QueryAsync(TimelineQuery, Tokens.Carol, new { id = "dev-00001" });
+        Assert.Equal(JsonValueKind.Null, denied.Data.GetProperty("deviceById").GetProperty("patchTimeline").ValueKind);
+        var error = Assert.Single(denied.Errors.EnumerateArray());
+        Assert.Equal(["deviceById", "patchTimeline"], Path(error));
+        Assert.Equal("AUTH_NOT_AUTHORIZED", Code(error));
     }
 
     [Fact]
@@ -492,6 +560,21 @@ public sealed class QueryTests(MongoFixture mongo)
 
     private static List<JsonElement> Events(GraphQLResponse r) =>
         [.. r.Data.GetProperty("deviceById").GetProperty("patchEvents").EnumerateArray()];
+
+    private static List<JsonElement> TimelineEvents(GraphQLResponse r, string field) =>
+        [.. r.Data.GetProperty("deviceById").GetProperty(field).EnumerateArray()];
+
+    private static void AssertDetails(JsonElement timelineEvent, params (string Label, string Value, bool Mono)[] expected)
+    {
+        var details = timelineEvent.GetProperty("details").EnumerateArray().ToList();
+        Assert.Equal(expected.Length, details.Count);
+        foreach (var (want, got) in expected.Zip(details))
+        {
+            Assert.Equal(want.Label, got.GetProperty("label").GetString());
+            Assert.Equal(want.Value, got.GetProperty("value").GetString());
+            Assert.Equal(want.Mono, got.GetProperty("mono").GetBoolean());
+        }
+    }
 
     private static string Iso(DateTime utc, TimeSpan? offset = null) =>
         new DateTimeOffset(utc).ToOffset(offset ?? TimeSpan.Zero).ToString("yyyy-MM-dd'T'HH:mm:ss.fffzzz", System.Globalization.CultureInfo.InvariantCulture);

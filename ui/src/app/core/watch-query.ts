@@ -20,6 +20,10 @@ export interface QueryRequest<TVars> {
   readonly [key: string]: unknown;
 }
 
+export interface DynamicQueryRequest<TData, TVars> extends QueryRequest<TVars> {
+  query: TypedDocumentNode<TData, TVars>;
+}
+
 const LOADING: QueryResult<never> = { loading: true };
 
 /**
@@ -34,16 +38,29 @@ export function watchQuery<TData, TVars extends OperationVariables>(
   query: TypedDocumentNode<TData, TVars>,
   request: Signal<QueryRequest<TVars> | null>,
 ): Signal<QueryResult<TData>> {
+  const dynamic = computed<DynamicQueryRequest<TData, TVars> | null>(() => {
+    const value = request();
+    return value ? { ...value, query } : null;
+  });
+  return watchDynamicQuery(dynamic);
+}
+
+/** Like `watchQuery`, with a document that may change when capability metadata changes. */
+export function watchDynamicQuery<TData, TVars extends OperationVariables>(
+  request: Signal<DynamicQueryRequest<TData, TVars> | null>,
+): Signal<QueryResult<TData>> {
   const apollo = inject(Apollo);
   const tagged = toSignal(
     toObservable(request).pipe(
       switchMap((req) =>
         req == null
           ? of({ req, result: LOADING as QueryResult<TData> })
-          : apollo.watchQuery<TData, TVars>({ query, variables: req.variables }).valueChanges.pipe(
-              map((result) => ({ req, result: result as QueryResult<TData> })),
-              startWith({ req, result: LOADING as QueryResult<TData> }),
-            ),
+          : apollo
+              .watchQuery<TData, TVars>({ query: req.query, variables: req.variables })
+              .valueChanges.pipe(
+                map((result) => ({ req, result: result as QueryResult<TData> })),
+                startWith({ req, result: LOADING as QueryResult<TData> }),
+              ),
       ),
     ),
   );

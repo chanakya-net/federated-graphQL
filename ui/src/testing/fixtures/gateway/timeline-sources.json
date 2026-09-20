@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "schemaHash": "8237caa658a783f0fc4da5ac26a436681816a037ca4cf556b558a2555ad788f2",
+  "sources": [
+    {
+      "id": "patch",
+      "field": "patchTimeline",
+      "name": "Patch",
+      "icon": "system_update_alt",
+      "color": "#1d4ed8",
+      "history": "patch",
+      "statuses": [
+        "APPLIED",
+        "PENDING",
+        "FAILED"
+      ],
+      "contractVersion": 1
+    },
+    {
+      "id": "softwareinstall",
+      "field": "softwareInstallTimeline",
+      "name": "Software Install",
+      "icon": "apps",
+      "color": "#047857",
+      "history": "install",
+      "statuses": [
+        "SUCCESS",
+        "FAILED"
+      ],
+      "contractVersion": 1
+    },
+    {
+      "id": "vulnerability",
+      "field": "vulnerabilityTimeline",
+      "name": "Vulnerability",
+      "icon": "bug_report",
+      "color": "#be185d",
+      "history": "vulnerability",
+      "statuses": [
+        "OPEN",
+        "REMEDIATED"
+      ],
+      "contractVersion": 1
+    }
+  ]
+}

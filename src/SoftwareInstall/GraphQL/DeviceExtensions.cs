@@ -1,5 +1,6 @@
 using HotChocolate.Authorization;
 using SoR.Shared.Auth;
+using SoR.Shared.Timeline;
 using SoR.SoftwareInstall.Storage;
 
 namespace SoR.SoftwareInstall.GraphQL;
@@ -35,6 +36,20 @@ public sealed class DeviceExtensions
             .Take(MaxEvents)
             .Select(e => new InstallEvent(e.Id, document.DeviceId, e.OccurredAt, e.Action, e.Result, e.Software))
             .ToList();
+    }
+
+    [Authorize(Policy = DevAuth.ServiceAccessPolicy)]
+    [GraphQLDescription("Normalized software installation timeline events. The date bounds are inclusive; null plus an error means denied or unavailable.")]
+    public async Task<IReadOnlyList<TimelineEvent>?> GetSoftwareInstallTimeline(
+        [Parent] Device device,
+        DateTimeOffset? since,
+        DateTimeOffset? until,
+        [Service] ICallerContext caller,
+        [Service] IInstallEventsStore store,
+        CancellationToken ct)
+    {
+        var events = await GetInstallEvents(device, since, until, caller, store, ct);
+        return events is null ? null : [.. events.Select(TimelineAdapters.FromInstall)];
     }
 }
 

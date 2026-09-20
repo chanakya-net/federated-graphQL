@@ -137,7 +137,7 @@ services:
       DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:?set in .env}
       SUBGRAPH_DEVICEDIRECTORY_URL: http://device-directory:8080/graphql
       SUBGRAPH_DEVICESEARCH_URL: http://device-search:8080/graphql
-      DEVICE_SEARCH_TIMEOUT_SECONDS: ${DEVICE_SEARCH_TIMEOUT_SECONDS:-30}
+      SUBGRAPH_DEVICESEARCH_TIMEOUT_SECONDS: ${DEVICE_SEARCH_TIMEOUT_SECONDS:-30}
       SUBGRAPH_PATCH_URL: http://patch:8080/graphql
       SUBGRAPH_VULNERABILITY_URL: http://vulnerability:8080/graphql
       SUBGRAPH_SOFTWAREINSTALL_URL: http://software-install:8080/graphql

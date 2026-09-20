@@ -1,0 +1,10 @@
+{
+  "id": "softwareinstall",
+  "field": "softwareInstallTimeline",
+  "name": "Software Install",
+  "icon": "apps",
+  "color": "#047857",
+  "history": "install",
+  "statuses": ["SUCCESS", "FAILED"],
+  "contractVersion": 1
+}

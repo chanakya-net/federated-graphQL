@@ -8,24 +8,23 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { provideRouter } from '@angular/router';
 
-import crossTenant from '../../../testing/fixtures/gateway/timeline-cross-tenant-dave.json';
-import deniedBob from '../../../testing/fixtures/gateway/timeline-denied-bob.json';
-import directoryDown from '../../../testing/fixtures/gateway/timeline-directory-down.json';
-import fullAlice from '../../../testing/fixtures/gateway/timeline-full-alice.json';
-import outageStop from '../../../testing/fixtures/gateway/timeline-outage-stop-patch.json';
-import rangeAlice from '../../../testing/fixtures/gateway/timeline-range-alice.json';
 import devUsers from '../../../testing/tokens.dev.json';
+import {
+  FOURTH_SOURCE,
+  TIMELINE_SOURCES,
+  catalog,
+  timelineBody,
+  wireEvent,
+} from '../../../testing/timeline-test-data';
 import { authInterceptor } from '../../core/auth.interceptor';
 import type { DemoUser } from '../../core/demo-user';
 import { provideGraphql } from '../../core/graphql.provider';
 import { SELECTED_USER_KEY, SessionService } from '../../core/session.service';
+import type { TimelineFilter } from '../../timeline/timeline.models';
 import { DeviceTimelinePage } from './device-timeline.page';
 
-// The real Apollo client (provideGraphql: errorPolicy 'all', HttpLink, InMemoryCache) and the real
-// interceptor, with only the HTTP backend replaced: recorded gateway bodies go in, the DOM comes out.
-
 const users = devUsers as DemoUser[];
-const user = (sub: string) => users.find((u) => u.sub === sub)!;
+const user = (sub: string) => users.find((candidate) => candidate.sub === sub)!;
 
 describe('DeviceTimelinePage', () => {
   let backend: HttpTestingController;
@@ -40,7 +39,7 @@ describe('DeviceTimelinePage', () => {
     }
   }
 
-  async function open(as: string, id = 'dev-00001'): Promise<TestRequest> {
+  async function begin(as = 'alice', id = 'dev-00001'): Promise<TestRequest> {
     localStorage.setItem(SELECTED_USER_KEY, as);
     const loading = session.load();
     backend.expectOne('/tokens.json').flush(users);
@@ -48,6 +47,14 @@ describe('DeviceTimelinePage', () => {
     fixture = TestBed.createComponent(DeviceTimelinePage);
     fixture.componentRef.setInput('id', id);
     el = fixture.nativeElement as HTMLElement;
+    await settle();
+    return backend.expectOne('/timeline-sources');
+  }
+
+  async function open(sourceCatalog = catalog(), as = 'alice'): Promise<TestRequest> {
+    const metadata = await begin(as);
+    expect(metadata.request.headers.get('Authorization')).toBeNull();
+    metadata.flush(sourceCatalog);
     await settle();
     return backend.expectOne('/graphql');
   }
@@ -57,15 +64,10 @@ describe('DeviceTimelinePage', () => {
     await settle();
   }
 
-  const banners = (kind: string) => [...el.querySelectorAll(`app-section-banner.${kind}`)];
-  const sectionOf = (banner: Element) => banner.getAttribute('data-section');
-  const listItems = () => [...el.querySelectorAll('app-timeline-list li.event')];
-  const points = () => [
-    ...el.querySelectorAll<HTMLButtonElement>('app-timeline-strip .point-button'),
-  ];
-  const detail = () => el.querySelector('app-event-detail .detail');
   const stateCard = () =>
     el.querySelector('app-state-card')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  const banners = (kind: string) => [...el.querySelectorAll(`app-section-banner.${kind}`)];
+  const rows = () => [...el.querySelectorAll<HTMLElement>('app-timeline-list li.event')];
 
   beforeEach(() => {
     localStorage.clear();
@@ -87,174 +89,143 @@ describe('DeviceTimelinePage', () => {
     localStorage.clear();
   });
 
-  it('always requests all three sections, with the selected user token', async () => {
-    const req = await open('bob');
-    expect(req.request.headers.get('Authorization')).toBe(`Bearer ${user('bob').token}`);
+  it('queries, renders, filters and details a fourth source while preserving a partial failure', async () => {
+    const sources = [...TIMELINE_SOURCES, FOURTH_SOURCE];
+    const req = await open(catalog(sources));
+    expect(req.request.headers.get('Authorization')).toBe(`Bearer ${user('alice').token}`);
     expect(req.request.body.operationName).toBe('DeviceTimeline');
     expect(req.request.body.variables).toEqual({ id: 'dev-00001', since: null, until: null });
-    for (const field of ['patchEvents', 'vulnerabilityEvents', 'installEvents']) {
-      expect(req.request.body.query).toContain(field);
+    for (const [index, source] of sources.entries()) {
+      expect(req.request.body.query).toContain(`timelineSource${index}: ${source.field}`);
     }
-    await respond(req, deniedBob);
-  });
+    expect(req.request.body.query).toContain('details');
+    expect(req.request.body.query).not.toContain(FOURTH_SOURCE.id);
 
-  it('shows skeletons, never a blank page, while loading', async () => {
-    const req = await open('alice');
-    expect(el.querySelector('mat-progress-bar')).not.toBeNull();
-    expect(el.querySelectorAll('app-section-banner.loading')).toHaveLength(3);
-    expect(el.querySelector('app-timeline-list [aria-busy="true"]')).not.toBeNull();
-    await respond(req, fullAlice);
-    expect(el.querySelector('mat-progress-bar')).toBeNull();
-  });
-
-  it('partial data reaches the page (errorPolicy all): two sections plus one lock banner for bob', async () => {
-    await respond(await open('bob'), deniedBob);
-
-    expect(banners('ok').map(sectionOf)).toEqual(['patchEvents', 'vulnerabilityEvents']);
-    expect(banners('no-access').map(sectionOf)).toEqual(['installEvents']);
-    expect(banners('unavailable')).toHaveLength(0);
-    expect(banners('no-access')[0].querySelector('mat-icon')?.textContent?.trim()).toBe('lock');
-    expect(banners('no-access')[0].querySelector('.copy')?.textContent).toBe(
-      "You don't have access to Software Install data.",
+    await respond(
+      req,
+      timelineBody(
+        sources,
+        {
+          vulnerability: [wireEvent('vuln', { status: 'OPEN' })],
+          softwareinstall: [],
+          [FOURTH_SOURCE.id]: [
+            wireEvent('cert-1', {
+              occurredAt: '2026-08-30T12:00:00Z',
+              label: 'workstation.example',
+              title: 'Certificate issued',
+              status: 'ISSUED',
+              details: [{ label: 'Serial', value: '01:ab', mono: true }],
+            }),
+          ],
+        },
+        {
+          patch: {
+            message: 'The current user is not authorized to access this resource.',
+            code: 'AUTH_NOT_AUTHORIZED',
+          },
+        },
+      ),
     );
 
-    const device = deniedBob.data.device;
-    expect(el.querySelector('.hostname')?.textContent?.trim()).toBe(device.hostname);
-    expect(listItems()).toHaveLength(device.patchEvents.length + device.vulnerabilityEvents.length);
-    expect(listItems().some((li) => li.getAttribute('data-source') === 'softwareinstall')).toBe(
-      false,
-    );
-  });
-
-  it('an outage shows the warning banner for that section only', async () => {
-    await respond(await open('alice'), outageStop);
-    expect(banners('unavailable').map(sectionOf)).toEqual(['patchEvents']);
-    expect(banners('unavailable')[0].querySelector('mat-icon')?.textContent?.trim()).toBe(
-      'warning',
-    );
-    expect(banners('unavailable')[0].querySelector('.copy')?.textContent).toBe(
-      'Patch service is currently unavailable — patch history is not shown.',
-    );
-    expect(banners('ok').map(sectionOf)).toEqual(['vulnerabilityEvents', 'installEvents']);
-    expect(banners('no-access')).toHaveLength(0);
-  });
-
-  it('merges all three sections newest first for alice', async () => {
-    await respond(await open('alice'), fullAlice);
-    const d = fullAlice.data.device;
-    expect(banners('ok')).toHaveLength(3);
-    expect(listItems()).toHaveLength(
-      d.patchEvents.length + d.vulnerabilityEvents.length + d.installEvents.length,
-    );
-    const times = listItems().map((li) =>
-      Date.parse(li.querySelector('time')!.getAttribute('datetime')!),
-    );
-    expect(times).toEqual([...times].sort((a, b) => b - a));
-  });
-
-  it('the strip has one point per listed event, oldest first; a point shows the details', async () => {
-    await respond(await open('alice'), fullAlice);
-    expect(points()).toHaveLength(listItems().length);
-    const stripTimes = points().map((b) => b.querySelector('time')!.getAttribute('datetime'));
-    const listTimes = listItems().map((li) => li.querySelector('time')!.getAttribute('datetime'));
-    expect(stripTimes).toEqual([...listTimes].reverse());
-    expect(detail()).toBeNull();
-    expect(el.querySelector('app-event-detail .hint')).not.toBeNull();
-
-    points().at(-1)!.click(); // the newest event
-    await settle();
-    const newest = listItems()[0];
-    expect(detail()?.textContent).toContain(newest.querySelector('.title')!.textContent);
-    expect(el.querySelector('app-event-detail')?.getAttribute('data-source')).toBe(
-      newest.getAttribute('data-source'),
-    );
-    expect(el.querySelectorAll('app-timeline-list li.event.selected')).toHaveLength(1);
-    expect(newest.classList).toContain('selected');
-
-    points().at(-1)!.click(); // again: cleared
-    await settle();
-    expect(detail()).toBeNull();
-    expect(el.querySelector('app-timeline-list li.event.selected')).toBeNull();
-  });
-
-  it('a list row selects too; a filter that hides the selected event clears the details', async () => {
-    await respond(await open('alice'), fullAlice);
-    const patchRow = listItems().find((li) => li.getAttribute('data-source') === 'patch')!;
-    patchRow.querySelector<HTMLButtonElement>('.row')!.click();
-    await settle();
-    expect(el.querySelector('app-event-detail')?.getAttribute('data-source')).toBe('patch');
-    expect(detail()?.textContent).toContain(patchRow.querySelector('.title')!.textContent);
-    const selectedPoint = el.querySelector('app-timeline-strip .point-button.selected');
-    expect(selectedPoint?.querySelector('time')?.getAttribute('datetime')).toBe(
-      patchRow.querySelector('time')!.getAttribute('datetime'),
-    );
+    expect(banners('no-access').map((banner) => banner.getAttribute('data-section'))).toEqual([
+      'patch',
+    ]);
+    expect(banners('ok').map((banner) => banner.getAttribute('data-section'))).toEqual([
+      'vulnerability',
+      'softwareinstall',
+      FOURTH_SOURCE.id,
+    ]);
+    const certRow = rows().find((row) => row.dataset['source'] === FOURTH_SOURCE.id)!;
+    expect(certRow.textContent).toContain('Certificate issued');
+    expect(el.textContent).toContain(FOURTH_SOURCE.name);
 
     const page = fixture.componentInstance as unknown as {
-      filter: { update: (fn: (f: object) => object) => void };
+      filter: { update: (fn: (filter: TimelineFilter) => TimelineFilter) => void };
     };
-    page.filter.update((f) => ({ ...f, sources: new Set(['vulnerability']) }));
+    page.filter.update((filter) => ({
+      ...filter,
+      sources: new Set([FOURTH_SOURCE.id]),
+      statuses: new Set(['ISSUED']),
+    }));
     await settle();
-    expect(detail()).toBeNull();
-    expect(el.querySelector('app-timeline-strip .point-button.selected')).toBeNull();
-    expect(points()).toHaveLength(fullAlice.data.device.vulnerabilityEvents.length);
-  });
-
-  it('device null without errors: not found in the user tenant', async () => {
-    await respond(await open('dave'), crossTenant);
-    expect(stateCard()).toContain('Device dev-00001 not found in TenantB');
-    expect(el.querySelector('app-section-banner')).toBeNull();
-  });
-
-  it('device null with errors: device directory unavailable', async () => {
-    await respond(await open('alice'), directoryDown);
-    expect(stateCard()).toContain('Device directory unavailable');
-    expect(stateCard()).toContain('Gateway error: Unexpected Execution Error');
-  });
-
-  it('HTTP 401: a global error with a way out', async () => {
-    const req = await open('alice');
-    req.flush('', { status: 401, statusText: 'Unauthorized' });
+    expect(rows()).toHaveLength(1);
+    rows()[0].querySelector<HTMLButtonElement>('button.row')!.click();
     await settle();
-    expect(stateCard()).toContain('Not authenticated (HTTP 401)');
-    expect(el.querySelector('app-state-card button')?.textContent).toContain('Reload users');
-  });
+    const detail = el.querySelector('app-event-detail .detail')!;
+    expect(detail.textContent).toContain('Certificate issued');
+    expect(detail.textContent).toContain('Serial');
+    expect(detail.querySelector('dd')?.classList).toContain('mono');
 
-  it('switching the user re-runs the query with the new token', async () => {
-    await respond(await open('alice'), fullAlice);
-    await session.select('dave');
-    await settle();
-    const req = backend.expectOne('/graphql');
-    expect(req.request.headers.get('Authorization')).toBe(`Bearer ${user('dave').token}`);
-    await respond(req, crossTenant);
-    expect(stateCard()).toContain('not found in TenantB');
-  });
-
-  it('the date range goes to the server; the other filters stay client-side', async () => {
-    await respond(await open('alice'), fullAlice);
-    const page = fixture.componentInstance as unknown as {
-      filter: { update: (fn: (f: object) => object) => void };
-    };
-
-    page.filter.update((f) => ({ ...f, text: 'python' }));
-    await settle();
-    backend.expectNone('/graphql');
-    expect(listItems().every((li) => li.textContent!.toLowerCase().includes('python'))).toBe(true);
-
-    page.filter.update((f) => ({
-      ...f,
-      text: '',
+    page.filter.update((filter) => ({
+      ...filter,
       since: '2026-08-01T00:00:00.000Z',
       until: '2026-08-31T23:59:59.999Z',
     }));
     await settle();
-    const req = backend.expectOne('/graphql');
-    expect(req.request.body.variables).toEqual({
+    backend.expectNone('/timeline-sources');
+    const ranged = backend.expectOne('/graphql');
+    expect(ranged.request.body.variables).toEqual({
       id: 'dev-00001',
       since: '2026-08-01T00:00:00.000Z',
       until: '2026-08-31T23:59:59.999Z',
     });
-    await respond(req, rangeAlice);
-    expect(banners('ok')).toHaveLength(3);
-    expect(banners('ok')[0].textContent).toContain('0 events'); // patchEvents: [] is ok, not degraded
+    expect(ranged.request.body.query).toContain('certificateTimeline');
+    await respond(ranged, timelineBody(sources, { [FOURTH_SOURCE.id]: [] }));
+  });
+
+  it('refreshes metadata for user changes and rebuilds queries after source addition and removal', async () => {
+    await respond(await open(), timelineBody(TIMELINE_SOURCES, {}));
+
+    const expanded = [...TIMELINE_SOURCES, FOURTH_SOURCE];
+    await session.select('bob');
+    await settle();
+    backend.expectOne('/timeline-sources').flush(catalog(expanded));
+    await settle();
+    const added = backend.expectOne('/graphql');
+    expect(added.request.headers.get('Authorization')).toBe(`Bearer ${user('bob').token}`);
+    expect(added.request.body.query).toContain(FOURTH_SOURCE.field);
+    await respond(added, timelineBody(expanded, { [FOURTH_SOURCE.id]: [wireEvent('cert')] }));
+    expect(rows().some((row) => row.dataset['source'] === FOURTH_SOURCE.id)).toBe(true);
+
+    await session.select('dave');
+    await settle();
+    const metadata = backend.expectOne('/timeline-sources');
+    metadata.flush(catalog([]));
+    await settle();
+    const request = backend.expectOne('/graphql');
+    expect(request.request.headers.get('Authorization')).toBe(`Bearer ${user('dave').token}`);
+    expect(request.request.body.variables).toEqual({ id: 'dev-00001' });
+    expect(request.request.body.query).not.toContain('$since');
+    expect(request.request.body.query).not.toContain('patchTimeline');
+    await respond(request, { data: { device: null } });
+    expect(stateCard()).toContain('not found in TenantB');
+  });
+
+  it('shows invalid and unsupported metadata explicitly, and Retry reloads the catalog', async () => {
+    const metadata = await begin();
+    metadata.flush({ ...catalog(), version: 2 });
+    await settle();
+    backend.expectNone('/graphql');
+    expect(stateCard()).toContain('Timeline metadata unavailable');
+    expect(stateCard()).toContain('Unsupported timeline catalog version 2');
+
+    el.querySelector<HTMLButtonElement>('app-state-card button')!.click();
+    await settle();
+    backend.expectOne('/timeline-sources').flush(catalog());
+    await settle();
+    const request = backend.expectOne('/graphql');
+    await respond(request, timelineBody(TIMELINE_SOURCES, {}));
+    expect(el.querySelector('app-state-card')).toBeNull();
+  });
+
+  it('keeps not-found and transport failures visible', async () => {
+    await respond(await open(catalog([]), 'dave'), { data: { device: null } });
+    expect(stateCard()).toContain('not found in TenantB');
+
+    fixture.destroy();
+    const req = await open(catalog([]));
+    req.flush('', { status: 401, statusText: 'Unauthorized' });
+    await settle();
+    expect(stateCard()).toContain('Not authenticated (HTTP 401)');
   });
 });

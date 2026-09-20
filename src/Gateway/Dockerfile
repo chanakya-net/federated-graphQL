@@ -20,7 +20,9 @@ COPY --from=build /app .
 # The committed, composed archive (scripts/compose-schema.sh). The build never composes: a stale archive is
 # caught by scripts/check-schema-drift.sh, not here.
 COPY gateway/gateway.far /app/gateway.far
+COPY gateway/timeline-sources.json /app/timeline-sources.json
 ENV GATEWAY_ARCHIVE=/app/gateway.far
+ENV TIMELINE_SOURCES_CATALOG=/app/timeline-sources.json
 ENV ASPNETCORE_URLS=http://+:8080 DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=true
 EXPOSE 8080
 # Non-root user (UID 1654) shipped with the official .NET 8+ images.

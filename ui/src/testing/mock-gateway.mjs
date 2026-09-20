@@ -3,6 +3,7 @@
 // then `npm start`, whose proxy.conf.json points /graphql and /tokens.json here). No dependencies.
 //
 //   GET  /tokens.json          src/testing/tokens.dev.json (fake tokens; the payload is read, never verified)
+//   GET  /timeline-sources     public timeline capability catalog
 //   POST /graphql              answers built from the responses recorded from the real gateway
 //                              (fixtures/gateway/, see record-fixtures.mjs), so the shapes are exact
 //   GET  /__mock?mode=<mode>   switch the mode at runtime
@@ -40,11 +41,7 @@ const VERBATIM = {
   'directory-down': 'timeline-directory-down.json',
 };
 const MODES = ['auto', 'unauthenticated', ...Object.keys(VERBATIM)];
-const SECTIONS = {
-  patchEvents: 'patch',
-  vulnerabilityEvents: 'vulnerability',
-  installEvents: 'softwareinstall',
-};
+const TIMELINE_SOURCES = fixture('timeline-sources.json');
 const DENIED_ERROR = fixture('timeline-denied-bob.json').errors[0];
 const FULL = {
   TenantA: fixture('timeline-full-alice.json'),
@@ -57,7 +54,9 @@ for (const f of ['search-alice.json', 'search-alice-dev-000.json', 'search-dave.
   for (const d of fixture(f).data.devices.items) catalog.set(d.id, d);
 }
 for (const f of Object.values(FULL)) {
-  const { patchEvents, vulnerabilityEvents, installEvents, ...device } = f.data.device;
+  const device = Object.fromEntries(
+    Object.entries(f.data.device).filter(([key]) => !key.startsWith('timelineSource')),
+  );
   catalog.set(device.id, device);
 }
 
@@ -85,26 +84,6 @@ function search(user, { search, first = 25, offset = 0 }) {
 }
 
 // --- Find devices: independent catalogs and the complete server-computed search page.
-const CATALOGS = {
-  PatchCatalog: {
-    field: 'patches',
-    service: 'patch',
-    items: fixture('catalog-patches-alice.json').data.patches,
-    text: (p) => [p.kbId, p.title],
-  },
-  CveCatalog: {
-    field: 'cves',
-    service: 'vulnerability',
-    items: fixture('catalog-cves-alice.json').data.cves,
-    text: (c) => [c.id, c.title],
-  },
-  SoftwareCatalog: {
-    field: 'software',
-    service: 'softwareinstall',
-    items: fixture('catalog-software-alice.json').data.software,
-    text: (s) => [s.name, s.publisher],
-  },
-};
 // The mock serves recorded common provider responses; software options retain server ordering.
 const PROVIDERS = fixture('search-capabilities-alice.json').data.searchCapabilities.map(
   (metadata) => ({
@@ -152,13 +131,6 @@ const denied = (field) => ({
 });
 const clamp = (first) => Math.min(Math.max(first, 1), 100);
 
-function catalogSearch(user, { field, service, items, text }, { search, first = 25 }) {
-  if (!user.services?.includes(service)) return denied(field);
-  const term = (search ?? '').trim().toLowerCase();
-  const matches = items.filter((i) => !term || text(i).some((t) => t.toLowerCase().includes(term)));
-  return { data: { [field]: matches.slice(0, clamp(first)) } };
-}
-
 const searchError = (message) => ({
   data: { findDevices: null },
   errors: [{ message, path: ['findDevices'], extensions: { code: 'BAD_USER_INPUT' } }],
@@ -193,41 +165,19 @@ function findDevices(user, { filters = [], first = 25, offset = 0 }) {
   if (filters.some((f) => !user.services?.includes(f.category))) return denied('findDevices');
   const base = FULL[user.tenantId]?.data.device;
   if (!base) return { data: { findDevices: { items: [], totalCount: 0, hasNextPage: false } } };
-  const events = [
-    ...base.patchEvents.map((e) => ({
-      id: e.id,
-      source: 'patch',
-      itemKey: e.patch.id,
-      occurredAt: e.occurredAt,
-      label: e.patch.kbId,
-      title: e.patch.title,
-      subtitle: `${e.patch.kbId} · ${e.patch.vendor}`,
-      status: e.status,
-      severity: e.patch.severity,
+  const detailValue = (event, label) => event.details.find((item) => item.label === label)?.value;
+  const events = TIMELINE_SOURCES.sources.flatMap((source, index) =>
+    (base[`timelineSource${index}`] ?? []).map((event) => ({
+      ...event,
+      source: source.id,
+      itemKey:
+        source.id === 'patch'
+          ? detailValue(event, 'Patch ID')
+          : source.id === 'softwareinstall'
+            ? `${detailValue(event, 'Software')}|${detailValue(event, 'Version')}`
+            : event.label,
     })),
-    ...base.vulnerabilityEvents.map((e) => ({
-      id: e.id,
-      source: 'vulnerability',
-      itemKey: e.cve.id,
-      occurredAt: e.occurredAt,
-      label: e.cve.id,
-      title: `${e.kind} ${e.cve.id}`,
-      subtitle: e.cve.title,
-      status: e.findingState,
-      severity: e.cve.severity,
-    })),
-    ...base.installEvents.map((e) => ({
-      id: e.id,
-      source: 'softwareinstall',
-      itemKey: `${e.software.name}|${e.software.version}`,
-      occurredAt: e.occurredAt,
-      label: e.software.name,
-      title: `${e.action} ${e.software.name} ${e.software.version}`,
-      subtitle: e.software.publisher,
-      status: e.result,
-      severity: null,
-    })),
-  ];
+  );
   const matches = (event, filter) =>
     event.source === filter.category &&
     (event.itemKey === filter.key ||
@@ -278,8 +228,9 @@ function timeline(user, { id, since, until }) {
   const from = since ? Date.parse(since) : -Infinity;
   const to = until ? Date.parse(until) : Infinity;
   const errors = [];
-  for (const [field, service] of Object.entries(SECTIONS)) {
-    if (user.services?.includes(service)) {
+  for (const [index, source] of TIMELINE_SOURCES.sources.entries()) {
+    const field = `timelineSource${index}`;
+    if (user.services?.includes(source.id)) {
       result[field] = result[field].filter(
         (e) => Date.parse(e.occurredAt) >= from && Date.parse(e.occurredAt) <= to,
       );
@@ -301,9 +252,6 @@ async function graphql(req, body) {
     return { status: 200, json: providerCapabilities(user) };
   if (operationName === 'SearchCatalog')
     return { status: 200, json: providerCatalog(user, variables) };
-  if (operationName in CATALOGS) {
-    return { status: 200, json: catalogSearch(user, CATALOGS[operationName], variables) };
-  }
   if (operationName === 'FindDevices') {
     if (requestMode === 'directory-down')
       return { status: 200, json: searchError('Device Directory unavailable') };
@@ -333,6 +281,10 @@ createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/tokens.json') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(readFileSync(join(here, 'tokens.dev.json')));
+    }
+    if (req.method === 'GET' && url.pathname === '/timeline-sources') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify(TIMELINE_SOURCES));
     }
     if (req.method === 'GET' && url.pathname === '/__mock') {
       const next = url.searchParams.get('mode');

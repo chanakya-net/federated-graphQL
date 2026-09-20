@@ -1,3 +1,5 @@
+using SoR.Shared.Timeline;
+
 namespace SoR.SoftwareInstall.GraphQL;
 
 // Exactly the contract's types (contracts/software-install.graphqls). C# member names map to the contract's enum
@@ -25,6 +27,31 @@ public sealed record InstallEvent(
     InstallAction Action,
     InstallResult Result,
     Software Software);
+
+internal static class TimelineAdapters
+{
+    public static TimelineEvent FromInstall(InstallEvent e)
+    {
+        var action = e.Action.ToString().ToUpperInvariant();
+        var result = e.Result.ToString().ToUpperInvariant();
+        return new TimelineEvent(
+            e.Id,
+            e.OccurredAt,
+            e.Software.Name,
+            $"{action} {e.Software.Name} {e.Software.Version}",
+            e.Software.Publisher,
+            result,
+            null,
+            [
+                new("Action", action, false),
+                new("Software", e.Software.Name, false),
+                new("Version", e.Software.Version, true),
+                new("Publisher", e.Software.Publisher, false),
+                new("Result", result, false),
+                new("Event ID", e.Id, true),
+            ]);
+    }
+}
 
 /// <summary>The contract's <c>SoftwareKeyInput</c>: an exact name and optionally one exact version (null = any version).</summary>
 [GraphQLDescription("A product to look devices up by: the exact name, and optionally one exact version (null = any version).")]

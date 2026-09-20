@@ -1,134 +1,151 @@
 <section class="page">
   <a mat-button routerLink="/" class="back"><mat-icon>arrow_back</mat-icon>Devices</a>
 
-  @let v = view();
-  @if (v.kind === 'transport-error') {
-    @if (v.status === 401) {
-      <app-state-card
-        heading="Not authenticated (HTTP 401)"
-        [message]="
-          'The gateway rejected the token of ' +
-          (session.selected()?.name ?? 'the selected user') +
-          '. token-generator mints new tokens whenever the stack starts; reload the users to pick them up.'
-        "
-        [detail]="v.message"
-        icon="key_off"
-      >
-        <button mat-flat-button (click)="reloadUsers()">Reload users</button>
-        <button mat-button (click)="retry()">Retry</button>
-      </app-state-card>
-    } @else {
-      <app-state-card
-        [heading]="v.status ? 'Gateway error (HTTP ' + v.status + ')' : 'Cannot reach the gateway'"
-        message="The request got no GraphQL response, so nothing about this device can be shown."
-        [detail]="v.message"
-        icon="cloud_off"
-      >
-        <button mat-flat-button (click)="retry()">Retry</button>
-      </app-state-card>
-    }
-  } @else if (v.kind === 'not-found') {
+  @if (catalogState().kind === 'error') {
     <app-state-card
-      tone="info"
-      icon="search_off"
-      [heading]="
-        'Device ' + id() + ' not found in ' + (session.selected()?.tenantId ?? 'this tenant')
-      "
-      message="It does not exist in this tenant, or it belongs to another one. The gateway gives the same answer either way."
-    >
-      <a mat-flat-button routerLink="/">Back to devices</a>
-    </app-state-card>
-  } @else if (v.kind === 'directory-unavailable') {
-    <app-state-card
-      heading="Device directory unavailable"
-      message="Every device comes from the Device Directory subgraph. Without it the whole query fails (by design), so no section can be shown."
-      [detail]="'Gateway error: ' + v.message"
-      icon="dns"
+      heading="Timeline metadata unavailable"
+      message="The timeline source catalog is missing, invalid, or uses a contract this UI does not support."
+      [detail]="$any(catalogState()).message"
+      icon="schema"
     >
       <button mat-flat-button (click)="retry()">Retry</button>
     </app-state-card>
   } @else {
-    @let device = v.kind === 'ok' ? v.device : null;
-    <header class="panel hero">
-      @if (!device) {
-        <mat-progress-bar mode="indeterminate" class="progress" />
+    @let v = view();
+    @if (v.kind === 'transport-error') {
+      @if (v.status === 401) {
+        <app-state-card
+          heading="Not authenticated (HTTP 401)"
+          [message]="
+            'The gateway rejected the token of ' +
+            (session.selected()?.name ?? 'the selected user') +
+            '. token-generator mints new tokens whenever the stack starts; reload the users to pick them up.'
+          "
+          [detail]="v.message"
+          icon="key_off"
+        >
+          <button mat-flat-button (click)="reloadUsers()">Reload users</button>
+          <button mat-button (click)="retry()">Retry</button>
+        </app-state-card>
+      } @else {
+        <app-state-card
+          [heading]="
+            v.status ? 'Gateway error (HTTP ' + v.status + ')' : 'Cannot reach the gateway'
+          "
+          message="The request got no GraphQL response, so nothing about this device can be shown."
+          [detail]="v.message"
+          icon="cloud_off"
+        >
+          <button mat-flat-button (click)="retry()">Retry</button>
+        </app-state-card>
       }
-      <div class="identity">
-        <span class="avatar" aria-hidden="true"><mat-icon>computer</mat-icon></span>
-        <div class="identity-text">
-          <h1 class="hostname">{{ device?.hostname ?? id() }}</h1>
-          <p class="os">{{ device ? device.os : 'Loading…' }}</p>
+    } @else if (v.kind === 'not-found') {
+      <app-state-card
+        tone="info"
+        icon="search_off"
+        [heading]="
+          'Device ' + id() + ' not found in ' + (session.selected()?.tenantId ?? 'this tenant')
+        "
+        message="It does not exist in this tenant, or it belongs to another one. The gateway gives the same answer either way."
+      >
+        <a mat-flat-button routerLink="/">Back to devices</a>
+      </app-state-card>
+    } @else if (v.kind === 'directory-unavailable') {
+      <app-state-card
+        heading="Device directory unavailable"
+        message="Every device comes from the Device Directory subgraph. Without it the whole query fails (by design), so no section can be shown."
+        [detail]="'Gateway error: ' + v.message"
+        icon="dns"
+      >
+        <button mat-flat-button (click)="retry()">Retry</button>
+      </app-state-card>
+    } @else {
+      @let device = v.kind === 'ok' ? v.device : null;
+      <header class="panel hero">
+        @if (!device) {
+          <mat-progress-bar mode="indeterminate" class="progress" />
+        }
+        <div class="identity">
+          <span class="avatar" aria-hidden="true"><mat-icon>computer</mat-icon></span>
+          <div class="identity-text">
+            <h1 class="hostname">{{ device?.hostname ?? id() }}</h1>
+            <p class="os">{{ device ? device.os : 'Loading…' }}</p>
+          </div>
         </div>
-      </div>
-      <dl class="fields">
-        <div>
-          <dt>ID</dt>
-          <dd class="mono">{{ id() }}</dd>
-        </div>
-        @if (device) {
+        <dl class="fields">
           <div>
-            <dt>IP address</dt>
-            <dd class="mono">{{ device.ipAddress }}</dd>
+            <dt>ID</dt>
+            <dd class="mono">{{ id() }}</dd>
           </div>
-          <div>
-            <dt>Last seen</dt>
-            <dd>
-              <time [attr.datetime]="device.lastSeenAt" [matTooltip]="device.lastSeenAt">{{
-                device.lastSeenAt | date: 'medium'
-              }}</time>
-            </dd>
-          </div>
-          <div>
-            <dt>Tenant</dt>
-            <dd>{{ device.tenantId }}</dd>
-          </div>
-        } @else {
-          @for (label of ['IP address', 'Last seen', 'Tenant']; track label) {
+          @if (device) {
             <div>
-              <dt>{{ label }}</dt>
-              <dd><span class="skeleton-bar field-skeleton"></span></dd>
+              <dt>IP address</dt>
+              <dd class="mono">{{ device.ipAddress }}</dd>
             </div>
+            <div>
+              <dt>Last seen</dt>
+              <dd>
+                <time [attr.datetime]="device.lastSeenAt" [matTooltip]="device.lastSeenAt">{{
+                  device.lastSeenAt | date: 'medium'
+                }}</time>
+              </dd>
+            </div>
+            <div>
+              <dt>Tenant</dt>
+              <dd>{{ device.tenantId }}</dd>
+            </div>
+          } @else {
+            @for (label of ['IP address', 'Last seen', 'Tenant']; track label) {
+              <div>
+                <dt>{{ label }}</dt>
+                <dd><span class="skeleton-bar field-skeleton"></span></dd>
+              </div>
+            }
           }
-        }
-      </dl>
-    </header>
-
-    <div class="sections" aria-label="Sections">
-      @for (s of sectionList; track s.key) {
-        <app-section-banner [section]="s" [state]="sections()?.[s.key] ?? null" />
-      }
-    </div>
-
-    <div class="panel filters">
-      <app-timeline-filters [(filter)]="filter" />
-    </div>
-
-    <section class="panel timeline" aria-label="Timeline">
-      <header class="timeline-head">
-        <h2 class="timeline-title">Timeline</h2>
-        @if (device) {
-          <span class="timeline-summary">
-            {{ filtered().length }} of {{ events().length }} event{{
-              events().length === 1 ? '' : 's'
-            }}, oldest to newest
-          </span>
-        }
+        </dl>
       </header>
-      <app-timeline-strip
+
+      <div class="sections" aria-label="Sections">
+        @for (s of sectionList(); track s.id) {
+          <app-section-banner [section]="s" [state]="sections()?.[s.id] ?? null" />
+        }
+      </div>
+
+      <div class="panel filters">
+        <app-timeline-filters
+          [(filter)]="filter"
+          [sources]="sectionList()"
+          [statuses]="statuses()"
+        />
+      </div>
+
+      <section class="panel timeline" aria-label="Timeline">
+        <header class="timeline-head">
+          <h2 class="timeline-title">Timeline</h2>
+          @if (device) {
+            <span class="timeline-summary">
+              {{ filtered().length }} of {{ events().length }} event{{
+                events().length === 1 ? '' : 's'
+              }}, oldest to newest
+            </span>
+          }
+        </header>
+        <app-timeline-strip
+          [events]="filtered()"
+          [total]="events().length"
+          [loading]="!device"
+          [(selected)]="selectedKey"
+        />
+        <app-event-detail [event]="selected()" (close)="selectedKey.set(null)" />
+      </section>
+
+      <app-timeline-list
         [events]="filtered()"
         [total]="events().length"
         [loading]="!device"
-        [(selected)]="selectedKey"
+        [selected]="selectedKey()"
+        (select)="selectedKey.set($event)"
       />
-      <app-event-detail [event]="selected()" (close)="selectedKey.set(null)" />
-    </section>
-
-    <app-timeline-list
-      [events]="filtered()"
-      [total]="events().length"
-      [loading]="!device"
-      [selected]="selectedKey()"
-      (select)="selectedKey.set($event)"
-    />
+    }
   }
 </section>

@@ -28,6 +28,8 @@ type Query {
 }
 
 type Device {
+  """Normalized timeline contract v1; nullable on denial/outage, tenant-scoped, inclusive date bounds."""
+  patchTimeline(since: DateTime, until: DateTime): [TimelineEvent!]
   id: ID!
   """
   NULLABLE on purpose (plan §4.2). Requires services contains "patch".
@@ -81,3 +83,21 @@ type PatchDeviceMatch {
 }
 
 scalar DateTime
+
+"""Common presentation contract used by every timeline source."""
+type TimelineEvent @shareable {
+  id: ID!
+  occurredAt: DateTime!
+  label: String!
+  title: String!
+  subtitle: String!
+  status: String!
+  severity: String
+  details: [TimelineDetail!]!
+}
+
+type TimelineDetail @shareable {
+  label: String!
+  value: String!
+  mono: Boolean!
+}

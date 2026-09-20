@@ -389,8 +389,23 @@ Device references via Device Directory. The browser makes one FindDevices reques
 `FindDevicesResult` is a distinct name: Device Directory already owns `DeviceSearchResult` for `devices`.
 Original schema shapes remain compatible. Existing capped `matches` fields are no longer used by the finder.
 A required-source failure yields an error at `findDevices`, not partial matches. Default search deadline is
-25 seconds; gateway DeviceSearch transport timeout is separately 30 seconds (`DEVICE_SEARCH_TIMEOUT_SECONDS`).
+25 seconds; gateway DeviceSearch transport timeout is separately 30 seconds (`SUBGRAPH_DEVICESEARCH_TIMEOUT_SECONDS`,
+set by Compose from `DEVICE_SEARCH_TIMEOUT_SECONDS`).
 Domain HTTP calls retain the 5-second default. Pages are fresh offset reads without a distributed snapshot.
 
 The old observation about UI operations in the 2026-09-20 Find devices row above is historical: catalogs
 remain separate, but the finder now uses the new root instead of one operation per reverse lookup.
+
+## Metadata-driven device timeline (2026-09-20)
+
+The timeline reads `/timeline-sources` at runtime and builds one aliased GraphQL query from the advertised
+fields. Domain services expose nullable `Device` timeline lists with the shared `TimelineEvent` and
+`TimelineDetail` contract. Source names, colors, statuses, and detail rows no longer require domain-specific
+UI types or rendering branches. Existing domain API fields remain available to other consumers.
+
+Composition generates `gateway.far` and `timeline-sources.json` together. The gateway loads an immutable
+schema/catalog snapshot and discovers authenticated HTTP clients from the FAR's source schema names.
+Every source must have a `SUBGRAPH_<NAME>_URL`; missing configuration fails startup. Unlike the earlier
+file-watching gateway setup, changes now require deploying both artifacts and restarting the gateway.
+The UI reloads metadata on navigation, user change, or Retry; compatible additions need no UI deployment.
+See [Timeline source deployment](timeline-sources.md) for the exact contract and onboarding steps.

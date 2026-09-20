@@ -1,6 +1,7 @@
 using HotChocolate.Authorization;
 using SoR.Patch.Data;
 using SoR.Shared.Auth;
+using SoR.Shared.Timeline;
 
 namespace SoR.Patch.GraphQL;
 
@@ -24,6 +25,20 @@ public sealed class DeviceExtensions
         [Service] IPatchStore store,
         CancellationToken ct)
         => await store.GetEventsAsync(caller.TenantId, device.Id, since, until, ct);
+
+    [Authorize(Policy = DevAuth.ServiceAccessPolicy)]
+    [GraphQLDescription("Normalized patch timeline events. The date bounds are inclusive; null plus an error means denied or unavailable.")]
+    public async Task<IReadOnlyList<TimelineEvent>?> GetPatchTimeline(
+        [Parent] Device device,
+        DateTimeOffset? since,
+        DateTimeOffset? until,
+        [Service] ICallerContext caller,
+        [Service] IPatchStore store,
+        CancellationToken ct)
+    {
+        var events = await store.GetEventsAsync(caller.TenantId, device.Id, since, until, ct);
+        return [.. events.Select(TimelineAdapters.FromPatch)];
+    }
 }
 
 /// <summary>

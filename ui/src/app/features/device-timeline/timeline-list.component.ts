@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
-import { eventKey, sourceMeta, type TimelineEvent } from '../../timeline/timeline.models';
+import { eventKey, type TimelineEvent } from '../../timeline/timeline.models';
 
 /**
  * The merged timeline as a list, newest first: source icon, local time (ISO in a tooltip), text,
@@ -79,6 +79,6 @@ export class TimelineListComponent {
   readonly select = output<string>();
 
   protected readonly skeletonRows = Array.from({ length: 6 }, (_, i) => i);
-  protected readonly sourceOf = (e: TimelineEvent) => sourceMeta(e.source);
+  protected readonly sourceOf = (e: TimelineEvent) => e.sourceMeta;
   protected readonly keyOf = eventKey;
 }

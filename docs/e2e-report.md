@@ -1,5 +1,27 @@
 # E2E report — 2026-09-18
 
+## Metadata-driven timeline update — 2026-09-20
+
+The timeline now discovers compatible sources from the generated, FAR-paired catalog. The gateway validates
+the catalog against its loaded schema, and the UI builds source queries, filters, and detail rows at runtime.
+See [Timeline source deployment](timeline-sources.md) for onboarding and the coordinated gateway restart.
+
+Verified in the current checkout and rebuilt local Compose stack:
+
+- Full .NET solution: **444 tests passed**. The final focused Gateway suite additionally passed **61/61**,
+  including the last shared-type validation regression added during the full run.
+- UI: **77 tests passed**, production build succeeded. Coverage includes an unfamiliar fourth source,
+  metadata refresh after addition/removal, empty catalogs, partial errors, and duplicate detail labels.
+- Temporary Compliance subgraph composition test: discovered and queried through the real gateway with
+  authorization forwarded; no production Compliance registration or UI source branch was added.
+- Schema/FAR/catalog regeneration: **no drift**. Both independent review passes closed with no findings.
+- `scripts/e2e.sh`: **29/29 passed in 65 seconds**, including the generic contract, inclusive date bounds,
+  tenant isolation, source-specific authorization, and normalized timeline degradation during an outage.
+- Browser: Alice **39 events**, generic Software Install detail rows, Bob **19 events** with only Software
+  Install denied; no console warnings/errors. Local gateway and UI rebuilt; outage services restored.
+- Re-recorded normalized fixtures and mock smoke: Alice counts **5/20/14**, Bob denial on the advertised
+  Software Install alias, August range **0/3/2** with every returned timestamp inside the bounds.
+
 ## Server-side search update — 2026-09-20
 
 The finder now uses one `FindDevices` operation. DeviceSearch calls domain APIs directly, combines full

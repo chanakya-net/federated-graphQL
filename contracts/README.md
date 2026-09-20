@@ -23,6 +23,12 @@ matching events. Inputs use the existing ordered category/key/connector expressi
 Discovery uses complete paginated reverse lookups, not capped `matches` sets. Required-source failures
 fail the nullable search root with an error. The existing Device Directory `DeviceSearchResult` stays unchanged.
 
+**Extensible timeline (2026-09-20)** adds `patchTimeline`, `vulnerabilityTimeline` and
+`softwareInstallTimeline` to `Device`. All are nullable lists of the same shareable `TimelineEvent`
+shape, with typed display details. The original domain fields remain supported API contracts.
+The UI uses the versioned source catalog generated with the composed FAR to discover these fields,
+then builds its selection and display generically. See [timeline source contract](../docs/timeline-sources.md).
+
 | File | What it fixes | Used by |
 |---|---|---|
 | `device-directory.graphqls` | Device Directory source schema (public `Device` owner) | P2B, P4, P5 |
@@ -58,8 +64,8 @@ fail the nullable search root with an error. The existing Device Directory `Devi
   ```
 
   Result: the public `Query` has `device`, `devices`, `patches`, `cves`, `software`, the three
-  `devicesWith*` reverse lookups, `findDevices`, and **not** `deviceById`; `Device` has nine fields (six from Device
-  Directory plus the three nullable extension lists).
+  `devicesWith*` reverse lookups, `findDevices`, and **not** `deviceById`; `Device` has twelve fields (six from Device
+  Directory, three domain event lists and three normalized timeline lists).
 - **P5** builds its queries and fixtures against these SDL files and `errors.md`.
 
 ## Notes on the SDL

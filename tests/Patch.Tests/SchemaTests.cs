@@ -77,6 +77,19 @@ public sealed class SchemaTests
     }
 
     [Fact]
+    public async Task PatchTimeline_uses_the_normalized_shareable_contract()
+    {
+        var sdl = await BuildSdlAsync();
+        var field = Type(sdl, "Device").Fields.Single(f => f.Name.Value == "patchTimeline");
+
+        Assert.Equal("[TimelineEvent!]", field.Type.ToString());
+        Assert.IsType<ListTypeNode>(field.Type);
+        Assert.Equal(["since: DateTime", "until: DateTime"], field.Arguments.Select(a => a.ToString()));
+        Assert.Equal(DevAuth.ServiceAccessPolicy, PolicyOf(field));
+        AssertShareableTimelineTypes(sdl);
+    }
+
+    [Fact]
     public async Task DeviceById_is_an_internal_lookup()
     {
         var deviceById = Type(await BuildSdlAsync(), "Query").Fields.Single(f => f.Name.Value == "deviceById");
@@ -152,6 +165,26 @@ public sealed class SchemaTests
 
     private static ObjectTypeDefinitionNode Type(DocumentNode doc, string name) =>
         doc.Definitions.OfType<ObjectTypeDefinitionNode>().Single(t => t.Name.Value == name);
+
+    private static string? PolicyOf(FieldDefinitionNode field) =>
+        field.Directives.Where(d => d.Name.Value == "authorize")
+            .SelectMany(d => d.Arguments)
+            .Where(a => a.Name.Value == "policy")
+            .Select(a => ((StringValueNode)a.Value).Value)
+            .SingleOrDefault();
+
+    private static void AssertShareableTimelineTypes(DocumentNode sdl)
+    {
+        var timelineEvent = Type(sdl, "TimelineEvent");
+        Assert.Equal(
+            ["id: ID!", "occurredAt: DateTime!", "label: String!", "title: String!", "subtitle: String!", "status: String!", "severity: String", "details: [TimelineDetail!]!"],
+            timelineEvent.Fields.Select(f => $"{f.Name.Value}: {f.Type}"));
+        Assert.All(timelineEvent.Fields, f => Assert.Contains(f.Directives, d => d.Name.Value == "shareable"));
+
+        var detail = Type(sdl, "TimelineDetail");
+        Assert.Equal(["label: String!", "value: String!", "mono: Boolean!"], detail.Fields.Select(f => $"{f.Name.Value}: {f.Type}"));
+        Assert.All(detail.Fields, f => Assert.Contains(f.Directives, d => d.Name.Value == "shareable"));
+    }
 
     private static async Task<DocumentNode> BuildSdlAsync() =>
         Utf8GraphQLParser.Parse((await BuildSchemaAsync()).ToString()!);

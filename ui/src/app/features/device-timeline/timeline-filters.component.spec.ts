@@ -2,15 +2,22 @@ import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideNativeDateAdapter } from '@angular/material/core';
 
-import { DEFAULT_FILTER, type TimelineFilter } from '../../timeline/timeline.models';
+import { TIMELINE_SOURCES } from '../../../testing/timeline-test-data';
+import { defaultTimelineFilter, type TimelineFilter } from '../../timeline/timeline.models';
 import { TimelineFiltersComponent, endOfDayIso, startOfDayIso } from './timeline-filters.component';
 
 @Component({
   imports: [TimelineFiltersComponent],
-  template: `<app-timeline-filters [(filter)]="filter" />`,
+  template: `<app-timeline-filters
+    [(filter)]="filter"
+    [sources]="sources"
+    [statuses]="statuses"
+  />`,
 })
 class Host {
-  readonly filter = signal<TimelineFilter>(DEFAULT_FILTER);
+  readonly sources = TIMELINE_SOURCES;
+  readonly statuses = TIMELINE_SOURCES.flatMap((source) => [...source.statuses]);
+  readonly filter = signal<TimelineFilter>(defaultTimelineFilter(TIMELINE_SOURCES));
 }
 
 describe('TimelineFiltersComponent', () => {

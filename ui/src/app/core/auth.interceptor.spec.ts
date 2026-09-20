@@ -39,6 +39,7 @@ describe('authInterceptor', () => {
 
   it('leaves every other URL alone', () => {
     expect(authorizationOf('/tokens.json', 'GET')).toBeNull();
+    expect(authorizationOf('/timeline-sources', 'GET')).toBeNull();
     expect(authorizationOf('/graphqlish')).toBeNull();
     expect(authorizationOf('http://elsewhere.example/graphql')).toBeNull();
   });

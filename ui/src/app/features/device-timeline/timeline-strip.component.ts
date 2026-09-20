@@ -15,7 +15,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
-import { eventKey, sourceMeta, type TimelineEvent } from '../../timeline/timeline.models';
+import { eventKey, type TimelineEvent } from '../../timeline/timeline.models';
 
 interface Point {
   key: string;
@@ -143,7 +143,7 @@ export class TimelineStripComponent {
       const e = events[i];
       const date = new Date(e.occurredAt);
       const key = `${date.getFullYear()}-${date.getMonth()}`;
-      const meta = sourceMeta(e.source);
+      const meta = e.sourceMeta;
       const point: Point = {
         key: eventKey(e),
         event: e,

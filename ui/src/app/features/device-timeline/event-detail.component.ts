@@ -4,54 +4,10 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
-import type { InstallEvent, PatchEvent, VulnerabilityEvent } from '../../graphql/types';
-import { sourceMeta, type TimelineEvent } from '../../timeline/timeline.models';
+import type { TimelineEvent } from '../../timeline/timeline.models';
 
-interface Field {
-  label: string;
-  value: string;
-  mono?: boolean;
-}
-
-/** Every field the query returns for one event, by source (graphql/operations.ts). */
-export function detailFields(e: TimelineEvent): Field[] {
-  switch (e.source) {
-    case 'patch': {
-      const p = e.raw as PatchEvent;
-      return [
-        { label: 'KB', value: p.patch.kbId, mono: true },
-        { label: 'Vendor', value: p.patch.vendor },
-        { label: 'Severity', value: p.patch.severity },
-        { label: 'Status', value: p.status },
-        { label: 'Patch ID', value: p.patch.id, mono: true },
-        { label: 'Event ID', value: p.id, mono: true },
-      ];
-    }
-    case 'vulnerability': {
-      const v = e.raw as VulnerabilityEvent;
-      return [
-        { label: 'CVE', value: v.cve.id, mono: true },
-        { label: 'CVSS score', value: v.cve.cvssScore.toFixed(1) },
-        { label: 'Severity', value: v.cve.severity },
-        { label: 'Event', value: v.kind },
-        { label: 'Finding state', value: v.findingState },
-        { label: 'Finding ID', value: v.findingId, mono: true },
-        { label: 'Event ID', value: v.id, mono: true },
-      ];
-    }
-    case 'softwareinstall': {
-      const i = e.raw as InstallEvent;
-      return [
-        { label: 'Action', value: i.action },
-        { label: 'Software', value: i.software.name },
-        { label: 'Version', value: i.software.version, mono: true },
-        { label: 'Publisher', value: i.software.publisher },
-        { label: 'Result', value: i.result },
-        { label: 'Event ID', value: i.id, mono: true },
-      ];
-    }
-  }
-}
+/** The server supplies presentation-neutral detail rows in display order. */
+export const detailFields = (event: TimelineEvent) => event.details;
 
 /** The selected event in full, in its subgraph's colour; a hint while nothing is selected. */
 @Component({
@@ -89,7 +45,7 @@ export function detailFields(e: TimelineEvent): Field[] {
           }
         </div>
         <dl class="fields">
-          @for (f of fields(); track f.label) {
+          @for (f of fields(); track $index) {
             <div class="field">
               <dt>{{ f.label }}</dt>
               <dd [class.mono]="f.mono">{{ f.value }}</dd>
@@ -206,7 +162,7 @@ export class EventDetailComponent {
   readonly event = input.required<TimelineEvent | null>();
   readonly close = output<void>();
 
-  protected readonly meta = computed(() => sourceMeta(this.event()!.source));
+  protected readonly meta = computed(() => this.event()!.sourceMeta);
   protected readonly fields = computed(() => {
     const e = this.event();
     return e ? detailFields(e) : [];

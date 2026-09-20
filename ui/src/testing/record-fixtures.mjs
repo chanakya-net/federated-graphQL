@@ -15,12 +15,13 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { addTypenameToDocument } from '@apollo/client/utilities';
-import { parse, print } from 'graphql';
+import { Kind, OperationTypeNode, parse, print } from 'graphql';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../../..');
 const out = join(here, 'fixtures/gateway');
-const gateway = `http://localhost:${process.env.GATEWAY_PORT ?? '5050'}/graphql`;
+const gatewayBase = `http://localhost:${process.env.GATEWAY_PORT ?? '5050'}`;
+const gateway = `${gatewayBase}/graphql`;
 // Capture only the new search responses without stopping services or re-recording legacy fixtures.
 const searchOnly = process.argv.includes('--search-only');
 
@@ -32,13 +33,97 @@ const query = (name) => {
   return print(addTypenameToDocument(parse(match[1])));
 };
 const DEVICE_SEARCH = query('DEVICE_SEARCH');
-const DEVICE_TIMELINE = query('DEVICE_TIMELINE');
-const PATCH_CATALOG = query('PATCH_CATALOG');
-const CVE_CATALOG = query('CVE_CATALOG');
-const SOFTWARE_CATALOG = query('SOFTWARE_CATALOG');
 const FIND_DEVICES = query('FIND_DEVICES');
 const SEARCH_CAPABILITIES = query('SEARCH_CAPABILITIES');
 const SEARCH_CATALOG = query('SEARCH_CATALOG');
+
+const name = (value) => ({ kind: Kind.NAME, value });
+const variable = (value) => ({ kind: Kind.VARIABLE, name: name(value) });
+const field = (value) => ({ kind: Kind.FIELD, name: name(value) });
+function timelineQuery(sources) {
+  for (const source of sources) {
+    if (!/^[_A-Za-z][_0-9A-Za-z]*$/.test(source.field) || source.field.startsWith('__'))
+      throw new Error(`timeline-sources: invalid GraphQL field ${source.field}`);
+  }
+  const eventFields = ['id', 'occurredAt', 'label', 'title', 'subtitle', 'status', 'severity'].map(
+    field,
+  );
+  eventFields.push({
+    kind: Kind.FIELD,
+    name: name('details'),
+    selectionSet: {
+      kind: Kind.SELECTION_SET,
+      selections: ['label', 'value', 'mono'].map(field),
+    },
+  });
+  const ranged = sources.length > 0;
+  return print(
+    addTypenameToDocument({
+      kind: Kind.DOCUMENT,
+      definitions: [
+        {
+          kind: Kind.OPERATION_DEFINITION,
+          operation: OperationTypeNode.QUERY,
+          name: name('DeviceTimeline'),
+          variableDefinitions: [
+            {
+              kind: Kind.VARIABLE_DEFINITION,
+              variable: variable('id'),
+              type: { kind: Kind.NON_NULL_TYPE, type: { kind: Kind.NAMED_TYPE, name: name('ID') } },
+            },
+            ...(ranged
+              ? ['since', 'until'].map((value) => ({
+                  kind: Kind.VARIABLE_DEFINITION,
+                  variable: variable(value),
+                  type: { kind: Kind.NAMED_TYPE, name: name('DateTime') },
+                }))
+              : []),
+          ],
+          selectionSet: {
+            kind: Kind.SELECTION_SET,
+            selections: [
+              {
+                kind: Kind.FIELD,
+                name: name('device'),
+                arguments: [{ kind: Kind.ARGUMENT, name: name('id'), value: variable('id') }],
+                selectionSet: {
+                  kind: Kind.SELECTION_SET,
+                  selections: [
+                    ...['id', 'hostname', 'os', 'ipAddress', 'lastSeenAt', 'tenantId'].map(field),
+                    ...sources.map((source, index) => ({
+                      kind: Kind.FIELD,
+                      alias: name(`timelineSource${index}`),
+                      name: name(source.field),
+                      arguments: [
+                        { kind: Kind.ARGUMENT, name: name('since'), value: variable('since') },
+                        { kind: Kind.ARGUMENT, name: name('until'), value: variable('until') },
+                      ],
+                      selectionSet: { kind: Kind.SELECTION_SET, selections: eventFields },
+                    })),
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    }),
+  );
+}
+
+async function fetchTimelineCatalog() {
+  const response = await fetch(`${gatewayBase}/timeline-sources`);
+  const body = await response.text();
+  if (!response.ok) throw new Error(`timeline-sources: HTTP ${response.status} ${body}`);
+  writeFileSync(join(out, 'timeline-sources.json'), body.endsWith('\n') ? body : `${body}\n`);
+  const catalog = JSON.parse(body);
+  if (catalog.version !== 1 || !Array.isArray(catalog.sources))
+    throw new Error('timeline-sources: unsupported or invalid catalog');
+  return catalog;
+}
+
+const timelineCatalog = await fetchTimelineCatalog();
+const TIMELINE_QUERY = timelineQuery(timelineCatalog.sources);
 
 const tokens = new Map();
 function token(sub) {
@@ -76,7 +161,13 @@ async function record(file, user, operationName, text, variables) {
 }
 
 const timeline = (file, user, id = 'dev-00001', range = {}) =>
-  record(file, user, 'DeviceTimeline', DEVICE_TIMELINE, { id, since: null, until: null, ...range });
+  record(
+    file,
+    user,
+    'DeviceTimeline',
+    TIMELINE_QUERY,
+    timelineCatalog.sources.length ? { id, since: null, until: null, ...range } : { id },
+  );
 const search = (file, user, variables) =>
   record(file, user, 'DeviceSearch', DEVICE_SEARCH, {
     search: null,
@@ -85,9 +176,6 @@ const search = (file, user, variables) =>
     ...variables,
   });
 
-// Record complete server search results; never compute device sets in the recorder.
-const catalog = (file, user, operationName, text, search = null) =>
-  record(file, user, operationName, text, { search, first: 25 });
 const find = (file, user, filters, offset = 0) =>
   record(file, user, 'FindDevices', FIND_DEVICES, { filters, first: 25, offset });
 const PATCH = { category: 'patch', key: 'patch-0128', connector: 'and' };
@@ -124,18 +212,6 @@ if (!searchOnly) {
   await withOutage('device-directory', 'stop', () =>
     timeline('timeline-directory-down.json', 'alice'),
   );
-
-  await catalog('catalog-patches-alice.json', 'alice', 'PatchCatalog', PATCH_CATALOG);
-  await catalog(
-    'catalog-patches-apple-alice.json',
-    'alice',
-    'PatchCatalog',
-    PATCH_CATALOG,
-    'apple',
-  );
-  await catalog('catalog-cves-alice.json', 'alice', 'CveCatalog', CVE_CATALOG);
-  await catalog('catalog-software-alice.json', 'alice', 'SoftwareCatalog', SOFTWARE_CATALOG);
-  await catalog('catalog-patches-denied-carol.json', 'carol', 'PatchCatalog', PATCH_CATALOG);
 }
 
 // Common provider contract: captured in search-only mode as well, with no outages.

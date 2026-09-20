@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Logging;
 using SoR.Gateway.Transport;
 using SoR.Shared.Auth;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace SoR.Gateway.Tests.Support;
 
@@ -25,21 +27,29 @@ public sealed class GatewayApp(IReadOnlyDictionary<string, string> settings, IRe
         FakeSubgraph? softwareInstall = null,
         int timeoutSeconds = 5,
         string? archive = null,
-        FakeSubgraph? deviceSearch = null)
+        FakeSubgraph? deviceSearch = null,
+        string? catalog = null,
+        IReadOnlyDictionary<string, string>? additionalSettings = null,
+        IReadOnlyList<FakeSubgraph>? additionalSubgraphs = null)
     {
+        archive ??= Repo.Archive;
+        catalog ??= MatchedEmptyCatalog(archive);
         var settings = new Dictionary<string, string>
         {
             [DevAuth.SigningKeyEnv] = Tokens.SigningKey,
             [GatewaySettings.TimeoutVariable] = timeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            [GatewaySettings.ArchiveVariable] = archive ?? Repo.Archive,
-            [SubgraphClientNames.UrlVariable(SubgraphClientNames.DeviceDirectory)] = UrlOf(deviceDirectory),
-            [SubgraphClientNames.UrlVariable(SubgraphClientNames.Patch)] = UrlOf(patch),
-            [SubgraphClientNames.UrlVariable(SubgraphClientNames.Vulnerability)] = UrlOf(vulnerability),
-            [SubgraphClientNames.UrlVariable(SubgraphClientNames.SoftwareInstall)] = UrlOf(softwareInstall),
+            [GatewaySettings.ArchiveVariable] = archive,
+            [GatewaySettings.CatalogVariable] = catalog,
+            [SubgraphClientRegistration.UrlVariable(TestSubgraphs.DeviceDirectory)] = UrlOf(deviceDirectory),
+            [SubgraphClientRegistration.UrlVariable(TestSubgraphs.Patch)] = UrlOf(patch),
+            [SubgraphClientRegistration.UrlVariable(TestSubgraphs.Vulnerability)] = UrlOf(vulnerability),
+            [SubgraphClientRegistration.UrlVariable(TestSubgraphs.SoftwareInstall)] = UrlOf(softwareInstall),
         };
-        settings[SubgraphClientNames.UrlVariable(SubgraphClientNames.DeviceSearch)] = UrlOf(deviceSearch);
+        settings[SubgraphClientRegistration.UrlVariable(TestSubgraphs.DeviceSearch)] = UrlOf(deviceSearch);
+        if (additionalSettings is not null)
+            foreach (var (key, value) in additionalSettings) settings[key] = value;
         FakeSubgraph?[] given = [deviceDirectory, patch, vulnerability, softwareInstall, deviceSearch];
-        return new GatewayApp(settings, [.. given.OfType<FakeSubgraph>()]);
+        return new GatewayApp(settings, [.. given.OfType<FakeSubgraph>(), .. additionalSubgraphs ?? []]);
     }
 
     /// <summary>Every fake answering "no events": the whole timeline resolves. Order: Device Directory, Patch, Vulnerability, SoftwareInstall.</summary>
@@ -75,4 +85,29 @@ public sealed class GatewayApp(IReadOnlyDictionary<string, string> settings, IRe
     }
 
     private static string UrlOf(FakeSubgraph? subgraph) => (subgraph?.Url ?? FakeSubgraph.Unreachable).ToString();
+
+    private static string MatchedEmptyCatalog(string archive)
+    {
+        // Bad-archive tests must reach gateway startup validation; the placeholder catalog is never loaded there.
+        var hash = File.Exists(archive)
+            ? Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(archive))).ToLowerInvariant()
+            : new string('0', 64);
+        var path = Path.Combine(Path.GetTempPath(), $"gateway-catalog-{hash}.json");
+        if (!File.Exists(path))
+        {
+            File.WriteAllText(path, JsonSerializer.Serialize(new { version = 1, schemaHash = hash, sources = Array.Empty<object>() }) + "\n");
+        }
+        return path;
+    }
+
+    public static class TestSubgraphs
+    {
+        public const string DeviceDirectory = "DeviceDirectory";
+        public const string Patch = "Patch";
+        public const string Vulnerability = "Vulnerability";
+        public const string SoftwareInstall = "SoftwareInstall";
+        public const string DeviceSearch = "DeviceSearch";
+
+        public static readonly string[] All = [DeviceDirectory, Patch, Vulnerability, SoftwareInstall, DeviceSearch];
+    }
 }
