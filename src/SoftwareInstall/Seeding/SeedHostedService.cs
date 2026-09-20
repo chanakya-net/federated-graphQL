@@ -48,6 +48,7 @@ public sealed partial class SeedHostedService(
         if (marker is not null)
         {
             LogAlreadyPresent(marker.DeviceCount, marker.CompletedAt);
+            await EnsureIndexAsync(ct);   // a container seeded before the index existed gets one, from its blobs
             return;
         }
 
@@ -63,10 +64,32 @@ public sealed partial class SeedHostedService(
                 if (n % ProgressEvery == 0) LogProgress(n, SeedConstants.TotalDevices, sw.ElapsedMilliseconds);
             });
 
+        // The reverse index, from the same pure documents that were just uploaded (contracts/seeding.md), before the marker.
+        await store.WriteIndexAsync(SoftwareIndexBuilder.Build(DeviceCatalog.All().Select(InstallSeedData.BuildDocument)), ct);
+
         // Written last. CompletedAt is bookkeeping, the only wall-clock value this service stores.
         await store.WriteMarkerAsync(new SeedMarker(DateTimeOffset.UtcNow, uploaded), ct);
 
         LogCompleted(uploaded, sw.ElapsedMilliseconds, MaxConcurrency);
+    }
+
+    /// <summary>
+    /// Marker present, index blob absent (seeded by a version without <c>devicesWithSoftware</c>): rebuild it from the
+    /// device blobs, the system of record, with the same bounded concurrency as the seed. Idempotent.
+    /// </summary>
+    private async Task EnsureIndexAsync(CancellationToken ct)
+    {
+        if (await store.ReadIndexAsync(ct) is not null) return;
+
+        var sw = Stopwatch.StartNew();
+        var names = await store.ListDeviceBlobNamesAsync(ct);
+        var documents = new System.Collections.Concurrent.ConcurrentBag<DeviceInstallDocument>();
+        await Parallel.ForEachAsync(
+            names,
+            new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrency, CancellationToken = ct },
+            async (name, token) => documents.Add(await store.ReadBlobAsync(name, token)));
+        await store.WriteIndexAsync(SoftwareIndexBuilder.Build(documents), ct);
+        LogIndexRebuilt(documents.Count, sw.ElapsedMilliseconds);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "seed already present ({DeviceCount} device blobs, completed {CompletedAt:O}); skipping")]
@@ -77,6 +100,9 @@ public sealed partial class SeedHostedService(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "seed completed: {Uploaded} device blobs in {ElapsedMs} ms ({Concurrency} concurrent PUTs)")]
     private partial void LogCompleted(int uploaded, long elapsedMs, int concurrency);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "software index rebuilt from {Blobs} device blobs in {ElapsedMs} ms")]
+    private partial void LogIndexRebuilt(int blobs, long elapsedMs);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "seed attempt {Attempt}/{MaxAttempts} failed")]
     private partial void LogAttemptFailed(Exception ex, int attempt, int maxAttempts);

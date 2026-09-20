@@ -375,3 +375,22 @@ Experiment outcomes (`spike/results/summary.txt`, run of 2026-09-18):
 | 2026-09-18 | P6 | phase-6 §3 fresh clone "in a directory that has never built the project" | `docker-compose.yml` pins `name: sor-poc`, so a second clone on the same machine would reuse the running stack's containers and volumes | Fresh clone run with `COMPOSE_PROJECT_NAME=sor-fresh GATEWAY_PORT=5051 UI_PORT=4201` (new volumes, so full seeding) after `docker compose build --no-cache`. Both env vars override `name:` and the ports, and every script honours them |
 | 2026-09-18 | P6 | phase-6 §6 step 8: "`docker compose ps`: eleven containers" | The stack has ten services: nine long-running ones plus `token-generator` (one-shot, `Exited (0)`), which only `ps -a` lists | `docs/demo.md` says ten and uses `docker compose ps -a` |
 | 2026-09-18 | P6 | phase-6 §8: "every open `⚠️` across `phases/` has a resolution in version-facts" | 11 open markers: `phase-0-spike.md` ×10 (Nitro package id, `[Lookup]`/`[Internal]` namespace and names, source-schema registration, source-schema package, lookup hidden, gateway registration, error-handling option, `IHttpClientFactory` by name, compose flags), `phase-4` ×1 (compose invocation) | All resolved in §1–§6 and the P0/P4 rows above. The mapping is in `docs/e2e-report.md` |
+| 2026-09-20 | Find devices | The exported `*-settings.json` advertise `batching.variableBatching: true` for every subgraph, and the gateway relies on it: to complete a list of `Device` stubs (the `devicesWith*` reverse lookups) it sends Device Directory ONE `device(id: $__fusion_1_id)` request with `variables` as an array, `Accept: application/jsonl, ...` | HC 16's server defaults `GraphQLServerOptions.Batching = AllowedBatching.None`, so every subgraph answered that request with HTTP 400 `HC0009 Invalid GraphQL Request`; with batching allowed it answers `application/jsonl`, one `{"variableIndex": n, "data": ...}` line per variable set (a single set gets a plain response). The gateway's code-level `AddHttpClientConfiguration(name, uri)` uses `SourceSchemaClientCapabilities.Default`, so flipping the flag in the archive changes nothing | Every subgraph's `Program.cs`: `app.MapGraphQL().WithOptions(o => o.Batching = AllowedBatching.VariableBatching)` (request batching stays off). `Gateway.Tests.TransportTests.Reverse_lookup_completes_device_stubs_through_device_directory_in_one_batch` and e2e `find_plan_completes_stubs_in_one_directory_call` pin it |
+| 2026-09-20 | Find devices | Any combination of root fields composes into one plan | One operation with the three `devicesWith*` lookups **and** a catalog field (`{ devicesWithPatches devicesWithCves devicesWithSoftware software }`) fails: the two Device Directory completions come back `HC0009` and the lookups null out. Each lookup alone, the three lookups together, a lookup plus any single catalog or `devices`, all work (checked against the compose stack) | Not worked around: the UI runs one operation per reverse lookup and one per catalog anyway. Left as a known Fusion 16.6.6 planner limitation; re-check on the next Fusion upgrade |
+
+
+## Server-side Device Search (2026-09-20)
+
+The new `DeviceSearch` source schema adds `findDevices(filters, first, offset)`. The service calls domain
+subgraphs directly with caller JWT context, retrieves complete paginated ID sets, evaluates AND/OR on the
+server, sorts IDs ordinally, then requests events only for the selected page. Fusion resolves the returned
+Device references via Device Directory. The browser makes one FindDevices request per search/page.
+
+`FindDevicesResult` is a distinct name: Device Directory already owns `DeviceSearchResult` for `devices`.
+Original schema shapes remain compatible. Existing capped `matches` fields are no longer used by the finder.
+A required-source failure yields an error at `findDevices`, not partial matches. Default search deadline is
+25 seconds; gateway DeviceSearch transport timeout is separately 30 seconds (`DEVICE_SEARCH_TIMEOUT_SECONDS`).
+Domain HTTP calls retain the 5-second default. Pages are fresh offset reads without a distributed snapshot.
+
+The old observation about UI operations in the 2026-09-20 Find devices row above is historical: catalogs
+remain separate, but the finder now uses the new root instead of one operation per reverse lookup.

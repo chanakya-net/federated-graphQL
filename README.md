@@ -3,8 +3,11 @@
 A proof of concept for a federated GraphQL graph on Hot Chocolate / Fusion v2 (.NET 10): three domain
 subgraphs (Patch on MongoDB, Vulnerability on PostgreSQL, SoftwareInstall on Azurite) extend a `Device`
 owned by a Device Directory subgraph, behind one Fusion gateway, with per-tenant isolation and per-user
-service access enforced in every subgraph, and an Angular timeline UI that tells "service down" apart
-from "no access".
+service access enforced in every subgraph, and an Angular UI that tells "service down" apart from "no
+access". Two ways in: a device's merged **timeline** (Device Directory first, then the three domains), and
+**Find devices** (DeviceSearch evaluates an AND / OR expression of patches, CVEs and software on the
+server, selects the page, and retrieves matching events; Fusion completes its Device references through
+Device Directory before returning the final result).
 
 ## Where to read
 
@@ -57,16 +60,16 @@ src/DeviceDirectory      Device owner subgraph (PostgreSQL)        — Phase 2B
 src/Patch                Patch subgraph (MongoDB)                  — Phase 3A
 src/Vulnerability        Vulnerability subgraph (PostgreSQL)       — Phase 3B
 src/SoftwareInstall      SoftwareInstall subgraph (Azurite blobs)  — Phase 3C
+src/DeviceSearch         cross-domain search coordinator (no database)
 src/Gateway              Fusion v2 gateway                         — Phase 4
 src/TokenGenerator       mints one JWT per dummy user              — Phase 2A
 tests/*.Tests            one xunit project per src project; tests/fixtures holds Phase 0 gateway responses
 contracts/               frozen contracts (Phase 1)
-schemas/, gateway/       exported SDL and the composed gateway.far (Phase 4 scripts)
+schemas/, gateway/       exported SDL and the composed gateway.far (Phase 4 scripts; contracts-v2/v3 = reverse lookups)
 infra/, ui/              compose infrastructure (Phase 2C), Angular UI (Phase 5)
 ```
 
-The subgraph, gateway and token generator projects are Phase 1 skeletons (they start and answer
-`/health`); each lane replaces its own skeleton.
+The services include their domain implementations; DeviceSearch coordinates reverse lookups through their APIs.
 
 ## Running the stack
 
@@ -141,15 +144,46 @@ TOKEN=$(docker compose run --rm -T token-generator --user alice)                
 bash 3.2+, curl, jq and Docker Compose:
 
 ```bash
-scripts/e2e.sh     # about 1 min; prints PASS/FAIL per scenario, ends with "e2e: 21/21 passed"
+scripts/e2e.sh     # about 1 min; prints PASS/FAIL per scenario, ends with "e2e: 26/26 passed"
 ```
 
 It covers federation (the query plan fans out after Device Directory), each demo user's access, tenant isolation,
 401s, each domain service stopped (fails fast) and paused (bounded by the 5 s timeout), Device Directory down,
-tenant-scoped search, the hidden `deviceById` lookup and `since`/`until` pushdown. It stops at the first
-failure and exits 1 (2 if the stack is not up). It always restores every service it stopped or paused. Ports
-and the timeout come from the shell, else `.env`. Results and the manual UI checklist are in
+tenant-scoped search, the hidden `deviceById` lookup, `since`/`until` pushdown, and the reverse lookups (Patch
+first, then one batched Device Directory completion; denial; tenant scoping; a patch AND a CVE through the
+per-item device sets). It stops at the first failure and
+exits 1 (2 if the stack is not up). It always restores every service it stopped or paused. Ports and the
+timeout come from the shell, else `.env`. Results and the manual UI checklist are in
 [`docs/e2e-report.md`](docs/e2e-report.md).
+
+## Find devices (reverse lookups with AND / OR)
+
+The UI's second page (`/find`, toolbar "Find devices") turns the graph around: build an expression from
+patches, CVEs and software picked from their catalogs, joined by **AND** / **OR** (AND binds first, so
+`A AND B OR C` is `(A AND B) OR C`), press **Find**, and get one row per matching device of your tenant with
+what matched in each source, linking to the device's timeline. The pickers search the catalogs
+(`patches(search:)`, `cves(search:)`, `software(search:)`); the expression is evaluated in two steps because
+the gateway can join entities but cannot intersect result sets across subgraphs:
+
+```graphql
+# 1. per category in the expression: the device-id set of every item (ids only, sorted)
+query { devicesWithPatches(patchIds: ["patch-0128", "patch-0282"], first: 1) { matches { patchId deviceIds } } }
+# the browser evaluates AND / OR over those sets, sorts and pages the ids, then
+# 2. per category: the events of exactly the visible devices, whose stubs the gateway completes via Device Directory
+query { devicesWithPatches(patchIds: ["patch-0128"], deviceIds: ["dev-00001", "dev-00013"], first: 25) {
+  totalCount items { device { id hostname os } events { occurredAt status patch { kbId } } } } }
+```
+
+`devicesWithCves(cveIds:)` and `devicesWithSoftware(software: [{ name: "Git", version: null }])` work the same.
+The domain subgraph answers with `Device` stubs (`id` only); the gateway completes `hostname`, `os`, ... with
+**one** variable-batched `device(id)` call to Device Directory (`docs/version-facts.md` §8, 2026-09-20).
+Access and tenant rules are the timeline's: a user without the service gets `null` plus `AUTH_NOT_AUTHORIZED`
+for that category only (its filters count as matching nothing and the UI says so), a stopped subgraph gets
+"unavailable", and with Device Directory down the sets still work but no page can be completed. Selections are
+capped at 50 keys per query and the expression at 20 filters. Patch and Vulnerability answer by index
+(`{tenantId, patchId, deviceId}` in MongoDB, `(tenant_id, cve_id, device_id)` in PostgreSQL); SoftwareInstall
+keeps a reverse index blob (`_index/software.json`) that the seeder writes and an older container rebuilds from
+its device blobs at startup.
 
 ## Demo
 
@@ -157,3 +191,30 @@ Follow [`docs/demo.md`](docs/demo.md): about 10 minutes, with the stack started 
 query, three backends, Nitro query plan), bob (Software Install denied by that service), dave (another
 tenant's device is simply not found), a domain service stopped and then paused, and optionally the Device
 Directory single point of failure.
+
+## Server-side cross-domain search
+
+The Find devices page sends one `findDevices(filters, first, offset)` operation. DeviceSearch retrieves
+complete matching IDs from the selected domain APIs, evaluates AND/OR (AND binds tighter), sorts by device ID,
+and paginates the combined result. It requests only that page's matching event details. Fusion enriches the
+returned Device references from Device Directory before responding. Catalog picker requests stay independent.
+
+The search service registers providers for Patch, Vulnerability and Software Install. Each owns its filter
+keys, permission, domain queries and result mapping; the shared engine owns combination and pagination.
+The finder builds its pickers from `searchCapabilities` and loads options through `searchCatalog`.
+Capability availability reflects the caller's permissions, not a live health check. Catalogs are bounded
+typeahead results (at most `first` options), including software any-version and exact-version choices.
+
+To support another domain later, implement and register a provider and configure its endpoint, then rebuild
+and deploy. The engine and finder need no domain-specific edits when it uses the existing catalog control.
+A different input control still needs UI support. Federation registration remains a separate step; this
+registry does not automatically discover arbitrary subgraphs. No additional domain is included here.
+See [the provider extension guide](docs/search-providers.md) for the adapter contract and registration steps.
+
+A required source denial, outage, malformed page, or work-limit failure returns a search error; it never
+turns into a successful empty or partial result. Matching means historical event/finding presence, preserving
+the existing filters. Offset pages are fresh reads; they are not a snapshot across services or requests.
+
+Run `dotnet test tests/DeviceSearch.Tests -c Release` for orchestration/transport regressions, and
+`dotnet test tests/Gateway.Tests -c Release --filter Category!=Integration` for gateway composition and
+entity enrichment. See [the search contract](contracts/device-search.graphqls) and [demo](docs/demo.md).

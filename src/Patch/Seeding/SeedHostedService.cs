@@ -20,12 +20,16 @@ public sealed partial class SeedHostedService(
     public const int MaxAttempts = 10;
     public const int BatchSize = 5_000;
 
-    /// <summary>The only query path of <c>patchEvents</c>; default name <c>tenantId_1_deviceId_1_occurredAt_-1</c>.</summary>
+    /// <summary>The query path of <c>patchEvents</c>; default name <c>tenantId_1_deviceId_1_occurredAt_-1</c>.</summary>
     public static readonly CreateIndexModel<PatchEventDocument> DeviceTimelineIndex = new(
         Builders<PatchEventDocument>.IndexKeys.Ascending(e => e.TenantId).Ascending(e => e.DeviceId).Descending(e => e.OccurredAt));
 
     public static readonly CreateIndexModel<PatchEventDocument> TenantIndex = new(
         Builders<PatchEventDocument>.IndexKeys.Ascending(e => e.TenantId));
+
+    /// <summary>The reverse lookup (<c>devicesWithPatches</c>): default name <c>tenantId_1_patchId_1_deviceId_1</c>.</summary>
+    public static readonly CreateIndexModel<PatchEventDocument> PatchDevicesIndex = new(
+        Builders<PatchEventDocument>.IndexKeys.Ascending(e => e.TenantId).Ascending(e => e.PatchId).Ascending(e => e.DeviceId));
 
     private static readonly BsonDocument Ping = new("ping", 1);
 
@@ -107,7 +111,7 @@ public sealed partial class SeedHostedService(
     }
 
     private static Task EnsureIndexesAsync(IMongoCollection<PatchEventDocument> events, CancellationToken ct) =>
-        events.Indexes.CreateManyAsync([DeviceTimelineIndex, TenantIndex], ct);
+        events.Indexes.CreateManyAsync([DeviceTimelineIndex, TenantIndex, PatchDevicesIndex], ct);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "seed already present ({Count} events, completed {CompletedAt:O}); skipping")]
     private partial void LogAlreadyPresent(long count, DateTime completedAt);

@@ -8,6 +8,12 @@ export const routes: Routes = [
       import('./features/device-search/device-search.page').then((m) => m.DeviceSearchPage),
   },
   {
+    path: 'find',
+    title: 'Find devices · SoR',
+    loadComponent: () =>
+      import('./features/device-finder/device-finder.page').then((m) => m.DeviceFinderPage),
+  },
+  {
     path: 'devices/:id',
     title: 'Device timeline · SoR',
     loadComponent: () =>

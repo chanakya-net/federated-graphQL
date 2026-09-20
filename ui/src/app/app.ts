@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatToolbarModule } from '@angular/material/toolbar';
-import { RouterLink, RouterOutlet } from '@angular/router';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { SessionService } from './core/session.service';
 import { UserSwitchComponent } from './features/user-switch/user-switch.component';
@@ -12,6 +12,7 @@ import { StateCardComponent } from './shared/state-card.component';
   selector: 'app-root',
   imports: [
     RouterLink,
+    RouterLinkActive,
     RouterOutlet,
     MatButtonModule,
     MatIconModule,
@@ -26,6 +27,16 @@ import { StateCardComponent } from './shared/state-card.component';
         <mat-icon aria-hidden="true">timeline</mat-icon>
         <span>SoR Device Timeline</span>
       </a>
+      <nav class="nav" aria-label="Pages">
+        <a
+          mat-button
+          routerLink="/"
+          routerLinkActive="active"
+          [routerLinkActiveOptions]="{ exact: true }"
+          >Devices</a
+        >
+        <a mat-button routerLink="/find" routerLinkActive="active">Find devices</a>
+      </nav>
       <span class="spacer"></span>
       @if (session.selected()) {
         <app-user-switch />
@@ -78,12 +89,24 @@ import { StateCardComponent } from './shared/state-card.component';
       background: linear-gradient(135deg, var(--mat-sys-primary), var(--mat-sys-tertiary));
       color: var(--mat-sys-on-primary);
     }
+    .nav {
+      display: flex;
+      gap: 4px;
+      margin-left: 8px;
+    }
+    .nav a.active {
+      background: color-mix(in srgb, var(--mat-sys-primary) 10%, transparent);
+      color: var(--mat-sys-primary);
+    }
     .spacer {
       flex: 1;
     }
     @media (max-width: 600px) {
       .brand span {
         display: none;
+      }
+      .nav {
+        margin-left: 0;
       }
     }
   `,

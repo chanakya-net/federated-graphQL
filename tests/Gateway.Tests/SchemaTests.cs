@@ -67,14 +67,64 @@ public sealed class SchemaTests(SchemaTests.Fixture fixture) : IClassFixture<Sch
     }
 
     [Theory]
+    [InlineData("devicesWithPatches", "PatchDeviceMatches", "PatchDeviceMatch")]
+    [InlineData("devicesWithCves", "CveDeviceMatches", "CveDeviceMatch")]
+    [InlineData("devicesWithSoftware", "SoftwareDeviceMatches", "SoftwareDeviceMatch")]
+    public async Task Reverse_lookups_are_nullable_and_their_items_carry_the_full_device(string field, string result, string item)
+    {
+        // The domain subgraph returns Device stubs; composed, `device` is the one Device type with all nine fields.
+        var type = await FieldTypeAsync("Query", field);
+        Assert.Equal("OBJECT", type.GetProperty("kind").GetString());
+        Assert.Equal(result, type.GetProperty("name").GetString());
+
+        Assert.Equal(["items", "matches", "totalCount"], (await FieldNamesAsync(result)).Order(StringComparer.Ordinal));
+        var itemFields = await FieldNamesAsync(item);
+        Assert.Equal(["device", "events"], itemFields.Order(StringComparer.Ordinal));
+        var device = await FieldTypeAsync(item, "device");
+        Assert.Equal("NON_NULL", device.GetProperty("kind").GetString());
+        Assert.Equal("Device", device.GetProperty("ofType").GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task FindDevices_returns_server_results_with_enrichable_device_references()
+    {
+        var type = await FieldTypeAsync("Query", "findDevices");
+        Assert.Equal("OBJECT", type.GetProperty("kind").GetString());
+        Assert.Equal("FindDevicesResult", type.GetProperty("name").GetString());
+        Assert.Equal(["hasNextPage", "items", "totalCount"],
+            (await FieldNamesAsync("FindDevicesResult")).Order(StringComparer.Ordinal));
+        var device = await FieldTypeAsync("DeviceSearchItem", "device");
+        Assert.Equal("NON_NULL", device.GetProperty("kind").GetString());
+        Assert.Equal("Device", device.GetProperty("ofType").GetProperty("name").GetString());
+    }
+
+    [Theory]
     [InlineData("patches", "Patch")]
     [InlineData("cves", "Cve")]
+    [InlineData("software", "Software")]
     public async Task Root_catalogs_are_nullable_lists_in_the_composed_schema(string field, string item)
     {
         var type = await FieldTypeAsync("Query", field);
 
         Assert.Equal("LIST", type.GetProperty("kind").GetString());
         Assert.Equal(item, type.GetProperty("ofType").GetProperty("ofType").GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Search_provider_contract_is_exposed_without_requiring_event_timestamps()
+    {
+        Assert.Equal(["available", "category", "color", "filterKind", "icon", "name", "placeholder"],
+            (await FieldNamesAsync("SearchCapability")).Order(StringComparer.Ordinal));
+        Assert.Equal(["detail", "key", "label"],
+            (await FieldNamesAsync("SearchCatalogItem")).Order(StringComparer.Ordinal));
+        var capabilities = await FieldTypeAsync("Query", "searchCapabilities");
+        Assert.Equal("NON_NULL", capabilities.GetProperty("kind").GetString());
+        var catalog = await FieldTypeAsync("Query", "searchCatalog");
+        Assert.Equal("LIST", catalog.GetProperty("kind").GetString());
+        Assert.Equal("SearchCatalogItem", catalog.GetProperty("ofType").GetProperty("ofType").GetProperty("name").GetString());
+        var timestamp = await FieldTypeAsync("DeviceSearchEvent", "occurredAt");
+        Assert.Equal("SCALAR", timestamp.GetProperty("kind").GetString());
+        Assert.Equal("DateTime", timestamp.GetProperty("name").GetString());
     }
 
     [Theory]

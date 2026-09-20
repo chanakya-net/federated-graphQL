@@ -17,6 +17,9 @@ internal static class Tokens
     /// <summary>TenantA, patch + vulnerability: no software install access.</summary>
     public static string Bob { get; } = Create(SigningKey, "bob", "TenantA", [DevAuth.Services.Patch, DevAuth.Services.Vulnerability]);
 
+    /// <summary>TenantA, software install only: no patch access.</summary>
+    public static string Carol { get; } = Create(SigningKey, "carol", "TenantA", [DevAuth.Services.SoftwareInstall]);
+
     /// <summary>TenantB, all three services.</summary>
     public static string Dave { get; } = Create(SigningKey, "dave", "TenantB", DevAuth.Services.All);
 

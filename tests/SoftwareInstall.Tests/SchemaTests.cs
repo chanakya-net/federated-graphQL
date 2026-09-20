@@ -84,12 +84,41 @@ public sealed class SchemaTests
     }
 
     [Fact]
-    public async Task DeviceById_is_the_only_root_field_and_an_internal_lookup()
+    public async Task Software_catalog_and_reverse_lookup_are_nullable_and_guarded()
+    {
+        var sdl = await BuildSdlAsync();
+        var query = Type(sdl, "Query");
+
+        var software = query.Fields.Single(f => f.Name.Value == "software");
+        Assert.Equal("[Software!]", software.Type.ToString());   // nullable: a denial must not null all of `data`
+        Assert.Equal(["search: String", "first: Int! = 25", "offset: Int! = 0"], software.Arguments.Select(a => a.ToString()));
+
+        // The reverse lookup (software -> devices): its items carry the entity stub `Device!`, completed by the gateway
+        // through Device Directory's `device(id)` lookup.
+        var find = query.Fields.Single(f => f.Name.Value == "devicesWithSoftware");
+        Assert.Equal("SoftwareDeviceMatches", find.Type.ToString());
+        Assert.IsNotType<NonNullTypeNode>(find.Type);
+        Assert.Equal(["software: [SoftwareKeyInput!]!", "deviceIds: [ID!]", "first: Int! = 25", "offset: Int! = 0"], find.Arguments.Select(a => a.ToString()));
+        Assert.Equal(["items: [SoftwareDeviceMatch!]!", "totalCount: Int!", "matches: [SoftwareMatch!]!"], Type(sdl, "SoftwareDeviceMatches").Fields.Select(f => $"{f.Name.Value}: {f.Type}"));
+        Assert.Equal(["device: Device!", "events: [InstallEvent!]!"], Type(sdl, "SoftwareDeviceMatch").Fields.Select(f => $"{f.Name.Value}: {f.Type}"));
+        Assert.Equal(["name: String!", "version: String", "deviceIds: [ID!]!"], Type(sdl, "SoftwareMatch").Fields.Select(f => $"{f.Name.Value}: {f.Type}"));
+        var key = sdl.Definitions.OfType<InputObjectTypeDefinitionNode>().Single(t => t.Name.Value == "SoftwareKeyInput");
+        Assert.Equal(["name: String!", "version: String"], key.Fields.Select(f => $"{f.Name.Value}: {f.Type}"));
+
+        foreach (var field in new[] { software, find })
+        {
+            var authorize = Assert.Single(field.Directives, d => d.Name.Value == "authorize");
+            Assert.Equal("policy: \"ServiceAccess\"", Assert.Single(authorize.Arguments).ToString());
+        }
+    }
+
+    [Fact]
+    public async Task DeviceById_is_an_internal_lookup()
     {
         var query = Type(await BuildSdlAsync(), "Query");
 
-        var lookup = Assert.Single(query.Fields);
-        Assert.Equal("deviceById", lookup.Name.Value);
+        Assert.Equal(["deviceById", "software", "devicesWithSoftware"], query.Fields.Select(f => f.Name.Value));
+        var lookup = query.Fields[0];
         Assert.Equal("Device", lookup.Type.ToString());
         Assert.Equal("id: ID!", Assert.Single(lookup.Arguments).ToString());
         Assert.Contains(lookup.Directives, d => d.Name.Value == "lookup");

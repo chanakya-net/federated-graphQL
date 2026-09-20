@@ -6,7 +6,8 @@
 | Patch | `patch` | 8080 | — | `/graphql`, `/health` | `DEV_JWT_SIGNING_KEY`, `Mongo__ConnectionString`, `Mongo__Database` |
 | Vulnerability | `vulnerability` | 8080 | — | `/graphql`, `/health` | `DEV_JWT_SIGNING_KEY`, `ConnectionStrings__Vulnerability` |
 | SoftwareInstall | `software-install` | 8080 | — | `/graphql`, `/health` | `DEV_JWT_SIGNING_KEY`, `Blob__ConnectionString`, `Blob__Container` |
-| Gateway | `fusion-gateway` | 8080 | `${GATEWAY_PORT}` (5050) | `POST /graphql`, `GET /graphql/` (Nitro UI), `/health` | `DEV_JWT_SIGNING_KEY`, `SUBGRAPH_DEVICEDIRECTORY_URL`, `SUBGRAPH_PATCH_URL`, `SUBGRAPH_VULNERABILITY_URL`, `SUBGRAPH_SOFTWAREINSTALL_URL`, `SUBGRAPH_TIMEOUT_SECONDS` |
+| Device Search | `device-search` | 8080 | — | `/graphql`, `/health` | `DEV_JWT_SIGNING_KEY`, `SUBGRAPH_PATCH_URL`, `SUBGRAPH_VULNERABILITY_URL`, `SUBGRAPH_SOFTWAREINSTALL_URL`, `SUBGRAPH_TIMEOUT_SECONDS` |
+| Gateway | `fusion-gateway` | 8080 | `${GATEWAY_PORT}` (5050) | `POST /graphql`, `GET /graphql/` (Nitro UI), `/health` | `DEV_JWT_SIGNING_KEY`, `SUBGRAPH_DEVICEDIRECTORY_URL`, `SUBGRAPH_PATCH_URL`, `SUBGRAPH_VULNERABILITY_URL`, `SUBGRAPH_SOFTWAREINSTALL_URL`, `SUBGRAPH_DEVICESEARCH_URL`, `SUBGRAPH_TIMEOUT_SECONDS`, `DEVICE_SEARCH_TIMEOUT_SECONDS` |
 | UI | `angular-ui` | 80 | `${UI_PORT}` (4200) | `/`, `/graphql` (proxy), `/tokens.json` | — |
 | Token generator | `token-generator` | — | — | — | `DEV_JWT_SIGNING_KEY`, `USERS_FILE`, `TOKENS_OUTPUT` |
 
@@ -19,7 +20,7 @@ Values for the dev stack live in the committed `.env`.
 - All subgraph URLs inside compose: `http://<compose name>:8080/graphql`. The same URLs are baked into
   `contracts/*-settings.json` as defaults; the gateway overrides them from `SUBGRAPH_<NAME>_URL`.
 - Source-schema names (composition, settings files, gateway `HttpClient` names):
-  `DeviceDirectory`, `Patch`, `Vulnerability`, `SoftwareInstall`. Each subgraph registers with
+  `DeviceDirectory`, `Patch`, `Vulnerability`, `SoftwareInstall`, `DeviceSearch`. Each subgraph registers with
   `builder.AddGraphQL("<Name>")` using exactly this string (`docs/version-facts.md` §2).
 - Every image: alpine runtime, non-root, `EXPOSE 8080`, `ASPNETCORE_URLS=http://+:8080`, `wget` available
   for healthchecks. Assembly name = project folder name (`Patch.dll`), so the P2C Dockerfile template
@@ -34,3 +35,14 @@ Values for the dev stack live in the committed `.env`.
 - **Gateway → subgraph:** the caller's `Authorization` header is forwarded unchanged on every subgraph
   call; each subgraph `HttpClient` has `Timeout = SUBGRAPH_TIMEOUT_SECONDS` (5 s).
 - The host port is `5050`, not `5000`: macOS reserves 5000 for AirPlay Receiver.
+
+## Device Search
+
+DeviceSearch has no database or seed dependency. Its health endpoint checks signing-key configuration;
+required-source availability is evaluated per query. Its configured domain URLs are direct subgraph URLs,
+not the public gateway. It forwards the caller JWT on each request and validates all selected service claims
+before issuing any calls. Domain requests use `SUBGRAPH_TIMEOUT_SECONDS` (default 5 seconds).
+
+The gateway's DeviceSearch client uses `DEVICE_SEARCH_TIMEOUT_SECONDS` (default 30 seconds), because one
+search coordinates multiple domain requests. DeviceSearch bounds its own search work to 25 seconds.
+The four original gateway clients continue using `SUBGRAPH_TIMEOUT_SECONDS`.

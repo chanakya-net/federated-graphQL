@@ -73,6 +73,10 @@ public sealed class ExportTests(ExportFixture export) : IClassFixture<ExportFixt
         Assert.Contains("deviceById(id: ID!): Device @lookup @internal", sdl, StringComparison.Ordinal);
         // Nullable list: no trailing "!" after the closing bracket.
         Assert.Contains("installEvents(since: DateTime, until: DateTime): [InstallEvent!]\n", sdl, StringComparison.Ordinal);
+        Assert.Contains("software(search: String, first: Int! = 25, offset: Int! = 0): [Software!]\n", sdl, StringComparison.Ordinal);
+        // Hot Chocolate wraps this argument list (it is long), one argument per line.
+        Assert.Contains("devicesWithSoftware(\n    software: [SoftwareKeyInput!]!\n    deviceIds: [ID!]\n    first: Int! = 25\n    offset: Int! = 0\n  ): SoftwareDeviceMatches\n", sdl, StringComparison.Ordinal);
+        Assert.Contains("matches: [SoftwareMatch!]!", sdl, StringComparison.Ordinal);
         Assert.Contains("@authorize(policy: \"ServiceAccess\")", sdl, StringComparison.Ordinal);
     }
 

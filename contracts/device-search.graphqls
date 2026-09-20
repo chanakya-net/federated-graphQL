@@ -1,0 +1,62 @@
+# DeviceSearch owns cross-domain matching and pagination. DeviceDirectory still owns Device properties.
+# Ordered filters use AND precedence over OR. Sources are patch, vulnerability, softwareinstall.
+# Query evaluates all required sources or fails; no partial/zero answer on denied or unavailable sources.
+# Stable ID order, fresh offset pages (no distributed snapshot). At most 20 filters and 100 page items.
+type Query {
+  findDevices(filters: [DeviceSearchFilterInput!]!, first: Int! = 25, offset: Int! = 0): FindDevicesResult
+  searchCapabilities: [SearchCapability!]!
+  searchCatalog(category: String!, search: String, first: Int! = 25): [SearchCatalogItem!]
+}
+
+# Availability means caller permission, not a downstream health check.
+type SearchCapability {
+  category: String!
+  name: String!
+  icon: String!
+  color: String!
+  placeholder: String!
+  filterKind: String!
+  available: Boolean!
+}
+
+# Bounded typeahead options, at most first (1..100); no offset pagination.
+type SearchCatalogItem {
+  key: String!
+  label: String!
+  detail: String!
+}
+
+input DeviceSearchFilterInput {
+  category: String!
+  key: String!
+  connector: String! = "and"
+}
+
+type FindDevicesResult {
+  items: [DeviceSearchItem!]!
+  totalCount: Int!
+  hasNextPage: Boolean!
+}
+
+type DeviceSearchItem {
+  device: Device!
+  events: [DeviceSearchEvent!]!
+}
+
+type DeviceSearchEvent {
+  id: ID!
+  source: String!
+  itemKey: String!
+  occurredAt: DateTime
+  label: String!
+  title: String!
+  subtitle: String!
+  status: String!
+  severity: String
+}
+
+type Device {
+  id: ID! @shareable
+}
+
+scalar DateTime

@@ -26,6 +26,9 @@ public sealed class InstallEventsBlobStore(BlobContainerClient container) : IIns
 
     public const string MarkerBlobName = "_seed/complete.json";
 
+    /// <summary>The reverse index (<see cref="SoftwareIndexDocument"/>), written before the marker; never a tenant prefix.</summary>
+    public const string IndexBlobName = "_index/software.json";
+
     private static readonly BlobHttpHeaders JsonHeaders = new() { ContentType = "application/json" };
 
     public BlobContainerClient Container => container;
@@ -93,6 +96,41 @@ public sealed class InstallEventsBlobStore(BlobContainerClient container) : IIns
     }
 
     public Task WriteMarkerAsync(SeedMarker marker, CancellationToken ct) => UploadAsync(MarkerBlobName, marker, ct);
+
+    public async Task<SoftwareIndexDocument?> ReadIndexAsync(CancellationToken ct)
+    {
+        try
+        {
+            var response = await container.GetBlobClient(IndexBlobName).DownloadContentAsync(ct);
+            return InstallJson.Deserialize<SoftwareIndexDocument>(response.Value.Content);
+        }
+        catch (RequestFailedException ex) when (ex.ErrorCode == BlobErrorCode.BlobNotFound)
+        {
+            return null;
+        }
+    }
+
+    public Task WriteIndexAsync(SoftwareIndexDocument index, CancellationToken ct) => UploadAsync(IndexBlobName, index, ct);
+
+    /// <summary>The names of every device blob (<c>{tenant}/{device}/installEvents.json</c>) in the container, in listing order.</summary>
+    public async Task<IReadOnlyList<string>> ListDeviceBlobNamesAsync(CancellationToken ct)
+    {
+        var names = new List<string>();
+        await foreach (var item in container.GetBlobsAsync(cancellationToken: ct))
+        {
+            var parts = item.Name.Split('/');
+            if (parts.Length == 3 && parts[2] == BlobFileName && TryGetBlobName(parts[0], parts[1], out _)) names.Add(item.Name);
+        }
+
+        return names;
+    }
+
+    /// <summary>One device blob by its full name, as <see cref="ReadAsync"/> would validate it.</summary>
+    public async Task<DeviceInstallDocument> ReadBlobAsync(string name, CancellationToken ct)
+    {
+        var response = await container.GetBlobClient(name).DownloadContentAsync(ct);
+        return InstallJson.Deserialize<DeviceInstallDocument>(response.Value.Content);
+    }
 
     /// <summary>Plain PUT without conditions, i.e. overwrite: re-running a partial seed needs no delete pass.</summary>
     private Task UploadAsync<T>(string name, T value, CancellationToken ct) =>

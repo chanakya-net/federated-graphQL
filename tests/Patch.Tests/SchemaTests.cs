@@ -90,12 +90,28 @@ public sealed class SchemaTests
     }
 
     [Fact]
-    public async Task Patches_is_a_nullable_list_with_defaults_25_and_0()
+    public async Task Patches_is_a_nullable_list_with_search_and_defaults_25_and_0()
     {
         var patches = Type(await BuildSdlAsync(), "Query").Fields.Single(f => f.Name.Value == "patches");
 
         Assert.Equal("[Patch!]", patches.Type.ToString());   // nullable: a denial must not null all of `data`
-        Assert.Equal(["first: Int! = 25", "offset: Int! = 0"], patches.Arguments.Select(a => a.ToString()));
+        Assert.Equal(["search: String", "first: Int! = 25", "offset: Int! = 0"], patches.Arguments.Select(a => a.ToString()));
+    }
+
+    [Fact]
+    public async Task DevicesWithPatches_is_nullable_and_returns_device_stubs()
+    {
+        // The reverse lookup (patches -> devices). Nullable for the same reason as `patches`; its items carry the
+        // entity stub `Device!`, which the gateway completes through Device Directory's `device(id)` lookup.
+        var sdl = await BuildSdlAsync();
+        var field = Type(sdl, "Query").Fields.Single(f => f.Name.Value == "devicesWithPatches");
+
+        Assert.Equal("PatchDeviceMatches", field.Type.ToString());
+        Assert.IsNotType<NonNullTypeNode>(field.Type);
+        Assert.Equal(["patchIds: [ID!]!", "deviceIds: [ID!]", "first: Int! = 25", "offset: Int! = 0"], field.Arguments.Select(a => a.ToString()));
+        Assert.Equal(["items: [PatchDeviceMatch!]!", "totalCount: Int!", "matches: [PatchMatch!]!"], Type(sdl, "PatchDeviceMatches").Fields.Select(f => $"{f.Name.Value}: {f.Type}"));
+        Assert.Equal(["device: Device!", "events: [PatchEvent!]!"], Type(sdl, "PatchDeviceMatch").Fields.Select(f => $"{f.Name.Value}: {f.Type}"));
+        Assert.Equal(["patchId: ID!", "deviceIds: [ID!]!"], Type(sdl, "PatchMatch").Fields.Select(f => $"{f.Name.Value}: {f.Type}"));
     }
 
     [Fact]
@@ -106,7 +122,12 @@ public sealed class SchemaTests
         var device = Type(sdl, "Device");
 
         Assert.Contains(query.Directives, d => d.Name.Value == "authorize");
-        foreach (var field in new[] { query.Fields.Single(f => f.Name.Value == "patches"), device.Fields.Single(f => f.Name.Value == "patchEvents") })
+        foreach (var field in new[]
+        {
+            query.Fields.Single(f => f.Name.Value == "patches"),
+            query.Fields.Single(f => f.Name.Value == "devicesWithPatches"),
+            device.Fields.Single(f => f.Name.Value == "patchEvents"),
+        })
         {
             var authorize = Assert.Single(field.Directives, d => d.Name.Value == "authorize");
             Assert.Equal($"@authorize(policy: \"{DevAuth.ServiceAccessPolicy}\")", authorize.ToString());

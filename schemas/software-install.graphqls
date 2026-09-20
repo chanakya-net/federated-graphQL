@@ -5,6 +5,19 @@ schema {
 type Query @authorize {
   "Internal lookup for the gateway only. Tenant-scoped, NOT behind the service policy."
   deviceById(id: ID!): Device @lookup @internal
+  "Software catalog: every distinct name / version / publisher seen in any install event, ordered by name then version. `search` matches name or publisher (case-insensitive substring). `first` is clamped to 1..100. Requires services contains \"softwareinstall\"."
+  software(search: String, first: Int! = 25, offset: Int! = 0): [Software!]
+    @authorize(policy: "ServiceAccess")
+    @cost(weight: "10")
+  "Devices in the caller's tenant with at least one install event for any of `software` (at most 50 keys; a key without a version matches every version), ordered by device id, each with its events for that software newest first. `deviceIds` (at most 100) restricts the candidates, e.g. to the page a client computed from `matches`. `first` is clamped to 1..100. Requires services contains \"softwareinstall\". Empty `items` = no device matches; null + error = degraded or denied."
+  devicesWithSoftware(
+    software: [SoftwareKeyInput!]!
+    deviceIds: [ID!]
+    first: Int! = 25
+    offset: Int! = 0
+  ): SoftwareDeviceMatches
+    @authorize(policy: "ServiceAccess")
+    @cost(weight: "10")
 }
 
 type Device {
@@ -28,6 +41,33 @@ type Software {
   name: String!
   version: String!
   publisher: String!
+}
+
+"A device and its install events for the selected software, newest first."
+type SoftwareDeviceMatch {
+  device: Device!
+  events: [InstallEvent!]!
+}
+
+"One page of devices with install events for the selected software, ordered by device id, plus the unpaged count."
+type SoftwareDeviceMatches {
+  items: [SoftwareDeviceMatch!]!
+  totalCount: Int!
+  "Per selected software key (unknown ones included, with an empty set), the ids of the caller's devices with an install event for it, sorted, at most 10000: lets a client combine selections with AND / OR, also across subgraphs. Resolved only when selected."
+  matches: [SoftwareMatch!]! @cost(weight: "10")
+}
+
+"The ids of the caller's devices with an install event for one selected software key (name, and version unless null = any), sorted, at most 10000."
+type SoftwareMatch {
+  name: String!
+  version: String
+  deviceIds: [ID!]!
+}
+
+"A product to look devices up by: the exact name, and optionally one exact version (null = any version)."
+input SoftwareKeyInput {
+  name: String!
+  version: String
 }
 
 "Defines when a policy shall be executed."

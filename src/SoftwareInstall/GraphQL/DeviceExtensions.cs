@@ -37,3 +37,28 @@ public sealed class DeviceExtensions
             .ToList();
     }
 }
+
+/// <summary>
+/// <c>matches</c> is resolved only when selected: the sets come from the reverse index, the tenant from the token and
+/// the selection from the parent.
+/// </summary>
+[ExtendObjectType<SoftwareDeviceMatches>]
+public sealed class SoftwareDeviceMatchesExtensions
+{
+    /// <summary>A tenant has at most 7 000 devices (contracts/seeding.md); the cap only guards a bigger deployment.</summary>
+    public const int MaxDeviceIdsPerMatch = 10_000;
+
+    [GraphQLDescription(
+        "Per selected software key (unknown ones included, with an empty set), the ids of the caller's devices with an install " +
+        "event for it, sorted, at most 10000: lets a client combine selections with AND / OR, also across subgraphs. Resolved only when selected.")]
+    public async Task<IReadOnlyList<SoftwareMatch>> GetMatches(
+        [Parent] SoftwareDeviceMatches parent,
+        [Service] ICallerContext caller,
+        [Service] ISoftwareIndexStore index,
+        CancellationToken ct)
+    {
+        var tenantId = caller.TenantId;
+        var software = await index.GetAsync(ct);
+        return [.. parent.Keys.Select(k => new SoftwareMatch(k.Name, k.Version, [.. software.DevicesFor(tenantId, [k]).Take(MaxDeviceIdsPerMatch)]))];
+    }
+}

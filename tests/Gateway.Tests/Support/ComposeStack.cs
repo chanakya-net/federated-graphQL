@@ -10,13 +10,13 @@ public sealed class ComposeStackCollection : ICollectionFixture<ComposeStack>
 }
 
 /// <summary>
-/// The real compose stack without the UI: the four subgraphs, their stores and the gateway, started with
+/// The real compose stack without the UI: the five subgraphs, their stores and the gateway, started with
 /// <c>scripts/up.sh</c> (a no-op rebuild if already up) and driven with <c>scripts/demo-outage.sh</c>. Services
 /// this fixture had to start are stopped again at the end; a stack that was already running is left running.
 /// </summary>
 public sealed class ComposeStack : IAsyncLifetime
 {
-    private static readonly string[] Services = ["device-directory", "patch", "vulnerability", "software-install", "fusion-gateway"];
+    private static readonly string[] Services = ["device-directory", "patch", "vulnerability", "software-install", "device-search", "fusion-gateway"];
     private static readonly string[] Stores = ["postgres", "mongo", "azurite"];
 
     private IReadOnlyList<string> _runningBefore = [];

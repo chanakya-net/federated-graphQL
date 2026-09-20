@@ -1,0 +1,118 @@
+<section class="page">
+  <header class="head">
+    <h1 class="title">Find devices</h1>
+    @if (session.selected(); as user) {
+      <span class="scope">in {{ user.tenantId }}, as {{ user.name }}</span>
+    }
+  </header>
+  <p class="lead">
+    Build an expression from the available catalogs, joined by <strong>AND</strong> /
+    <strong>OR</strong>, then <strong>Find</strong>: every device in your tenant that satisfies it,
+    one row per device with what matched in each source. All selected sources must be available to
+    return a complete result.
+  </p>
+
+  <div class="panel builder" role="search" aria-label="Filter expression builder">
+    @let catalogState = capabilityView();
+    @if (catalogState.kind === 'loading') {
+      <p role="status">Loading search catalogs…</p>
+    } @else if (catalogState.kind !== 'ok') {
+      <app-state-card
+        heading="Search catalogs could not be loaded"
+        [message]="
+          catalogState.kind === 'no-access'
+            ? 'You do not have access to search catalogs.'
+            : catalogState.message
+        "
+      >
+        <button mat-button type="button" (click)="retry()">Retry</button>
+      </app-state-card>
+    }
+    <div class="pickers">
+      @for (capability of capabilities(); track capability.category) {
+        @if (capability.filterKind === 'catalog') {
+          <app-provider-catalog
+            [capability]="capability"
+            [full]="stagedFull()"
+            [attempt]="catalogAttemptValue()"
+            (picked)="pick(capability.category, $event)"
+            (learned)="learn(capability.category, $event)"
+          />
+        } @else {
+          <app-state-card
+            [heading]="capability.name"
+            message="This search control is not supported by this version of the app."
+          />
+        }
+      }
+    </div>
+    <app-filter-expression
+      [(filters)]="staged"
+      [labelOf]="labelOf"
+      [detailOf]="detailOf"
+      [capabilities]="capabilities()"
+    />
+    <div class="actions">
+      <button
+        mat-flat-button
+        type="button"
+        class="find"
+        (click)="find()"
+        [disabled]="staged().length === 0"
+      >
+        <mat-icon>manage_search</mat-icon>
+        Find devices
+      </button>
+      <button
+        mat-button
+        type="button"
+        (click)="clear()"
+        [disabled]="staged().length === 0 && appliedEmpty()"
+      >
+        Clear
+      </button>
+    </div>
+  </div>
+
+  @if (appliedEmpty()) {
+    <app-state-card
+      tone="info"
+      icon="manage_search"
+      heading="Nothing to find yet"
+      message="Pick at least one catalog item above, join more with AND / OR, and press Find. One row per matching device, with what matched in each source."
+    />
+  } @else {
+    <p class="showing">
+      Devices where <strong class="expression">{{ expressionText() }}</strong>
+    </p>
+    @let result = searchView();
+    @if (
+      result.kind === 'no-access' ||
+      result.kind === 'unavailable' ||
+      result.kind === 'transport-error'
+    ) {
+      <app-state-card
+        heading="Search could not be completed"
+        [message]="
+          result.kind === 'no-access'
+            ? 'You do not have access to one or more selected sources.'
+            : result.message
+        "
+        detail="A complete result requires every selected source. Retry the search when the source is available."
+      >
+        <button mat-button type="button" (click)="retry()">Retry</button>
+      </app-state-card>
+    } @else {
+      <app-finder-table
+        [rows]="rows()"
+        [categories]="categories()"
+        [capabilities]="capabilities()"
+        [total]="total()"
+        [pageIndex]="pageIndex()"
+        [loading]="result.kind === 'loading'"
+        [tenant]="session.selected()?.tenantId ?? 'this tenant'"
+        (page)="onPage($event)"
+      />
+    }
+  }
+</section>

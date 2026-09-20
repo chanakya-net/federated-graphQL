@@ -1,4 +1,4 @@
-// Hand-written result types for the two operations in operations.ts (schemas/*.graphqls).
+// Hand-written result types for the operations in operations.ts (schemas/*.graphqls).
 // `DateTime` values arrive as ISO-8601 strings.
 
 export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -66,4 +66,109 @@ export interface DeviceTimelineVars {
   id: string;
   since: string | null;
   until: string | null;
+}
+
+// --- Find devices (device-finder).
+
+export interface CatalogVars {
+  search: string | null;
+  first: number;
+}
+
+export interface PatchInfo {
+  id: string;
+  kbId: string;
+  title: string;
+  severity: Severity;
+  vendor: string;
+}
+
+export interface CveInfo {
+  id: string;
+  title: string;
+  cvssScore: number;
+  severity: Severity;
+}
+
+export interface SoftwareInfo {
+  name: string;
+  version: string;
+  publisher: string;
+}
+
+/** The catalogs are nullable lists: `null` means degraded or denied (contracts/errors.md). */
+export interface PatchCatalogData {
+  patches: PatchInfo[] | null;
+}
+
+export interface CveCatalogData {
+  cves: CveInfo[] | null;
+}
+
+export interface SoftwareCatalogData {
+  software: SoftwareInfo[] | null;
+}
+
+/** A software catalog option can select every version of the product. */
+export interface SoftwareKeyInput {
+  name: string;
+  version: string | null;
+}
+
+/** Final server-filtered and paginated result, enriched by Device Directory through Fusion. */
+export interface DeviceSearchFilterInput {
+  category: string;
+  key: string;
+  connector: 'and' | 'or';
+}
+export interface DeviceSearchEvent {
+  id: string;
+  source: DeviceSearchFilterInput['category'];
+  itemKey: string;
+  occurredAt: string | null;
+  label: string;
+  title: string;
+  subtitle: string;
+  status: string;
+  severity: string | null;
+}
+export interface FindDevicesResult {
+  items: { device: Device; events: DeviceSearchEvent[] }[];
+  totalCount: number;
+  hasNextPage: boolean;
+}
+export interface FindDevicesData {
+  findDevices: FindDevicesResult | null;
+}
+export interface FindDevicesVars {
+  filters: DeviceSearchFilterInput[];
+  first: number;
+  offset: number;
+}
+
+/** Metadata and catalog keys are supplied by the registered device search providers. */
+export interface SearchCapability {
+  category: string;
+  name: string;
+  icon: string;
+  color: string;
+  placeholder: string;
+  filterKind: string;
+  available: boolean;
+}
+export interface SearchCapabilitiesData {
+  searchCapabilities: SearchCapability[];
+}
+export interface SearchCatalogItem {
+  key: string;
+  label: string;
+  detail: string;
+}
+export interface SearchCatalogData {
+  searchCatalog: SearchCatalogItem[] | null;
+}
+export interface SearchCatalogVars {
+  category: string;
+  search: string | null;
+  first: number;
 }

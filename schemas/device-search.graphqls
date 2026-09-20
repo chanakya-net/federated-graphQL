@@ -1,0 +1,101 @@
+schema {
+  query: Query
+}
+
+type Query @authorize {
+  findDevices(
+    filters: [DeviceSearchFilterInput!]!
+    first: Int! = 25
+    offset: Int! = 0
+  ): FindDevicesResult @cost(weight: "10")
+  searchCapabilities: [SearchCapability!]!
+  searchCatalog(category: String!, search: String, first: Int! = 25): [SearchCatalogItem!]
+    @cost(weight: "10")
+}
+
+type Device {
+  id: ID! @shareable
+}
+
+type DeviceSearchEvent {
+  id: ID!
+  source: String!
+  itemKey: String!
+  occurredAt: DateTime
+  label: String!
+  title: String!
+  subtitle: String!
+  status: String!
+  severity: String
+}
+
+type DeviceSearchItem {
+  device: Device!
+  events: [DeviceSearchEvent!]!
+}
+
+type FindDevicesResult {
+  items: [DeviceSearchItem!]!
+  totalCount: Int!
+  hasNextPage: Boolean!
+}
+
+type SearchCapability {
+  category: String!
+  name: String!
+  icon: String!
+  color: String!
+  placeholder: String!
+  filterKind: String!
+  available: Boolean!
+}
+
+type SearchCatalogItem {
+  key: String!
+  label: String!
+  detail: String!
+}
+
+input DeviceSearchFilterInput {
+  category: String!
+  key: String!
+  connector: String! = "and"
+}
+
+"Defines when a policy shall be executed."
+enum ApplyPolicy {
+  "Before the resolver was executed."
+  BEFORE_RESOLVER
+  "After the resolver was executed."
+  AFTER_RESOLVER
+  "The policy is applied in the validation step before the execution."
+  VALIDATION
+}
+
+"The `DateTime` scalar type represents a date and time with time zone offset information."
+scalar DateTime
+  @specifiedBy(url: "https://scalars.graphql.org/chillicream/date-time.html")
+
+"The authorize directive."
+directive @authorize(
+  "The name of the authorization policy that determines access to the annotated resource."
+  policy: String
+  "Roles that are allowed to access the annotated resource."
+  roles: [String!]
+  "Defines when the authorize directive shall be applied. By default the authorize directive is applied before the resolver is executed."
+  apply: ApplyPolicy! = BEFORE_RESOLVER
+) repeatable on OBJECT | FIELD_DEFINITION
+
+"The purpose of the `cost` directive is to define a `weight` for GraphQL types, fields, and arguments. Static analysis can use these weights when calculating the overall cost of a query or response."
+directive @cost(
+  "The `weight` argument defines what value to add to the overall cost for every appearance, or possible appearance, of a type, field, argument, etc."
+  weight: String!
+) on
+  | SCALAR
+  | OBJECT
+  | FIELD_DEFINITION
+  | ARGUMENT_DEFINITION
+  | ENUM
+  | INPUT_FIELD_DEFINITION
+
+directive @shareable repeatable on OBJECT | FIELD_DEFINITION

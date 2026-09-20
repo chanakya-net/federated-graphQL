@@ -25,3 +25,21 @@ public sealed class DeviceExtensions
         CancellationToken ct)
         => await store.GetEventsAsync(caller.TenantId, device.Id, since, until, ct);
 }
+
+/// <summary>
+/// <c>matches</c> is resolved only when selected: the sets are the expensive part of the reverse lookup and most
+/// pages do not need them. The tenant comes from the token, the selection from the parent.
+/// </summary>
+[ExtendObjectType<PatchDeviceMatches>]
+public sealed class PatchDeviceMatchesExtensions
+{
+    [GraphQLDescription(
+        "Per selected patch (unknown ids included, with an empty set), the ids of the caller's devices with an event for it, " +
+        "sorted, at most 10000: lets a client combine selections with AND / OR, also across subgraphs. Resolved only when selected.")]
+    public async Task<IReadOnlyList<PatchMatch>> GetMatches(
+        [Parent] PatchDeviceMatches parent,
+        [Service] ICallerContext caller,
+        [Service] IPatchStore store,
+        CancellationToken ct)
+        => await store.GetMatchesAsync(caller.TenantId, parent.PatchIds, ct);
+}

@@ -12,5 +12,6 @@ public static class PatchSchema
         builder
             .AddAuthorization()
             .AddQueryType<Query>()
-            .AddTypeExtension<DeviceExtensions>();
+            .AddTypeExtension<DeviceExtensions>()
+            .AddTypeExtension<PatchDeviceMatchesExtensions>();
 }

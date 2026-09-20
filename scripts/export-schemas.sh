@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # <schema file base name>:<project folder>, in the fixed composition order.
-PAIRS="device-directory:DeviceDirectory patch:Patch vulnerability:Vulnerability software-install:SoftwareInstall"
+PAIRS="device-directory:DeviceDirectory patch:Patch vulnerability:Vulnerability software-install:SoftwareInstall device-search:DeviceSearch"
 for pair in $PAIRS; do
   name="${pair%%:*}"; proj="${pair##*:}"
   echo "==> exporting $name (src/$proj)"

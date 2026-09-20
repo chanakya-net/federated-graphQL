@@ -23,7 +23,7 @@ public sealed partial class SeedingTests(AzuriteFixture azurite, ITestOutputHelp
 
         Assert.Equal(SeedConstants.TenantADeviceCount, await CountAsync(container, "TenantA/"));
         Assert.Equal(SeedConstants.TotalDevices - SeedConstants.TenantADeviceCount, await CountAsync(container, "TenantB/"));
-        Assert.Equal(SeedConstants.TotalDevices + 1, await CountAsync(container, prefix: null));   // + the marker
+        Assert.Equal(SeedConstants.TotalDevices + 2, await CountAsync(container, prefix: null));   // + the marker + the index
         Assert.True((await container.GetBlobClient(InstallEventsBlobStore.MarkerBlobName).ExistsAsync()).Value);
         var marker = InstallJson.Deserialize<SeedMarker>((await container.GetBlobClient(InstallEventsBlobStore.MarkerBlobName).DownloadContentAsync()).Value.Content);
         Assert.Equal(SeedConstants.TotalDevices, marker.DeviceCount);
@@ -43,7 +43,34 @@ public sealed partial class SeedingTests(AzuriteFixture azurite, ITestOutputHelp
 
         Assert.Equal(markerEtag, (await container.GetBlobClient(InstallEventsBlobStore.MarkerBlobName).GetPropertiesAsync()).Value.ETag);
         Assert.Equal(blobEtag, (await container.GetBlobClient("TenantA/dev-00042/installEvents.json").GetPropertiesAsync()).Value.ETag);
-        Assert.Equal(SeedConstants.TotalDevices + 1, await CountAsync(container, prefix: null));
+        Assert.Equal(SeedConstants.TotalDevices + 2, await CountAsync(container, prefix: null));
+    }
+
+    [Fact]
+    public async Task Index_blob_equals_the_seed_function_and_is_rebuilt_from_the_blobs_when_missing()
+    {
+        var container = azurite.Container;
+        var index = container.GetBlobClient(InstallEventsBlobStore.IndexBlobName);
+        var expected = InstallJson.Serialize(SoftwareIndexBuilder.Build(DeviceCatalog.All().Select(InstallSeedData.BuildDocument))).ToString();
+        Assert.Equal(expected, (await index.DownloadContentAsync()).Value.Content.ToString());
+
+        // A container seeded by a version without the index (marker present, index absent): the next start scans the
+        // device blobs and writes the same index, without re-seeding. Destructive on the shared container, restored
+        // by the app under test itself.
+        await index.DeleteAsync();
+        try
+        {
+            await using var second = azurite.NewApp();
+            await second.WaitUntilHealthyAsync();
+            output.WriteLine(Assert.Single(second.Logs.Messages, m => m.Contains("software index rebuilt from 12000 device blobs", StringComparison.Ordinal)));
+            Assert.DoesNotContain(second.Logs.Messages, m => m.Contains("seeded ", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (!(await index.ExistsAsync()).Value) await index.UploadAsync(BinaryData.FromString(expected), overwrite: true);
+        }
+
+        Assert.Equal(expected, (await index.DownloadContentAsync()).Value.Content.ToString());
     }
 
     [Fact]

@@ -1,0 +1,1 @@
+{"errors":[{"message":"Device search requires access to patch.","path":["searchCatalog"],"extensions":{"code":"AUTH_NOT_AUTHORIZED"}}],"data":{"searchCatalog":null}}

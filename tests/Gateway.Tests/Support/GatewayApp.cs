@@ -24,7 +24,8 @@ public sealed class GatewayApp(IReadOnlyDictionary<string, string> settings, IRe
         FakeSubgraph? vulnerability = null,
         FakeSubgraph? softwareInstall = null,
         int timeoutSeconds = 5,
-        string? archive = null)
+        string? archive = null,
+        FakeSubgraph? deviceSearch = null)
     {
         var settings = new Dictionary<string, string>
         {
@@ -36,7 +37,8 @@ public sealed class GatewayApp(IReadOnlyDictionary<string, string> settings, IRe
             [SubgraphClientNames.UrlVariable(SubgraphClientNames.Vulnerability)] = UrlOf(vulnerability),
             [SubgraphClientNames.UrlVariable(SubgraphClientNames.SoftwareInstall)] = UrlOf(softwareInstall),
         };
-        FakeSubgraph?[] given = [deviceDirectory, patch, vulnerability, softwareInstall];
+        settings[SubgraphClientNames.UrlVariable(SubgraphClientNames.DeviceSearch)] = UrlOf(deviceSearch);
+        FakeSubgraph?[] given = [deviceDirectory, patch, vulnerability, softwareInstall, deviceSearch];
         return new GatewayApp(settings, [.. given.OfType<FakeSubgraph>()]);
     }
 

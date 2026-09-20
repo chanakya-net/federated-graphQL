@@ -10,10 +10,21 @@ type Query {
   """
   deviceById(id: ID!): Device @lookup @internal
   """
-  Patch catalog. Requires services contains "patch".
+  Patch catalog ordered by id. `search` (optional) matches kbId or title, case-insensitive substring.
+  Requires services contains "patch".
   NULLABLE on purpose, like the extension field: a denial on a non-null root field would null all of `data`.
   """
-  patches(first: Int! = 25, offset: Int! = 0): [Patch!]
+  patches(search: String, first: Int! = 25, offset: Int! = 0): [Patch!]
+  """
+  Reverse lookup (contracts-v2): the devices of the caller's tenant with at least one event for any of
+  `patchIds` (at most 50 ids; more is a field error with code SELECTION_TOO_LARGE), ordered by device id,
+  each with its events for those patches newest first. The tenant comes from the token only.
+  `deviceIds` (contracts-v3, at most 100) restricts the candidates, e.g. to a page a client computed from
+  `matches`. `first` is clamped to 1..100. Requires services contains "patch".
+  NULLABLE on purpose: null + error = degraded or denied; empty `items` = no device matches.
+  The `device` of each item is the entity stub: the gateway completes it through Device Directory.
+  """
+  devicesWithPatches(patchIds: [ID!]!, deviceIds: [ID!], first: Int! = 25, offset: Int! = 0): PatchDeviceMatches
 }
 
 type Device {
@@ -45,5 +56,28 @@ type Patch {
 }
 
 enum PatchSeverity { CRITICAL HIGH MEDIUM LOW }
+
+"""One page of the reverse lookup plus the unpaged count."""
+type PatchDeviceMatches {
+  items: [PatchDeviceMatch!]!
+  totalCount: Int!
+  """
+  contracts-v3: per selected patch (unknown ids included, with an empty set), the sorted ids of the caller's
+  devices with an event for it (at most 10000). Resolved only when selected. Lets a client combine
+  selections with AND / OR, also across subgraphs, which the gateway cannot do.
+  """
+  matches: [PatchMatch!]!
+}
+
+type PatchMatch {
+  patchId: ID!
+  deviceIds: [ID!]!
+}
+
+"""A device and its events for the selected patches, newest first."""
+type PatchDeviceMatch {
+  device: Device!
+  events: [PatchEvent!]!
+}
 
 scalar DateTime

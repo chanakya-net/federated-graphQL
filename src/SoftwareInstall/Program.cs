@@ -1,3 +1,4 @@
+using HotChocolate.AspNetCore;
 using Microsoft.Extensions.Options;
 using SoR.Shared.Auth;
 using SoR.SoftwareInstall.GraphQL;
@@ -12,6 +13,7 @@ builder.Services.Configure<BlobOptions>(builder.Configuration.GetSection(BlobOpt
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<BlobOptions>>().Value.CreateContainerClient());
 builder.Services.AddSingleton<InstallEventsBlobStore>();
 builder.Services.AddSingleton<IInstallEventsStore>(sp => sp.GetRequiredService<InstallEventsBlobStore>());
+builder.Services.AddSingleton<ISoftwareIndexStore, SoftwareIndexStore>();
 
 builder.Services.AddDevJwtAuthentication(builder.Configuration);   // also adds the "auth-config" health check
 builder.Services.AddServiceAccessPolicy(DevAuth.Services.SoftwareInstall);
@@ -31,5 +33,8 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapHealthChecks("/health");
-app.MapGraphQL();
+// HC 16 answers `variables: [...]` (variable batching) with HTTP 400 unless it is allowed here, although the exported
+// settings advertise it and the gateway uses it to complete a list of Device stubs (devicesWith*) through one call
+// (docs/version-facts.md §8). Request batching (`[{...},{...}]`) stays off.
+app.MapGraphQL().WithOptions(o => o.Batching = AllowedBatching.VariableBatching);
 await app.RunWithGraphQLCommandsAsync(args);   // enables `dotnet run -- schema export --output <file>`

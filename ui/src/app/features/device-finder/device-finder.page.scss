@@ -1,0 +1,84 @@
+.page {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 24px 16px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.title {
+  margin: 0;
+  font: var(--mat-sys-headline-small);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.scope {
+  color: var(--mat-sys-on-surface-variant);
+}
+.lead {
+  margin: -8px 0 0;
+  max-width: 760px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.builder {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+.pickers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.find mat-icon {
+  margin-right: 4px;
+}
+
+.showing {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+.expression {
+  color: var(--mat-sys-on-surface);
+  overflow-wrap: anywhere;
+}
+.sources {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.problem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+  border: 1px solid var(--mat-sys-error);
+}
+.problem mat-icon {
+  color: var(--mat-sys-error);
+}
+
+@media (max-width: 900px) {
+  .pickers,
+  .sources {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

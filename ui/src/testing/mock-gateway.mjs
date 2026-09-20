@@ -11,9 +11,14 @@
 //   auto (default)   like the real stack: no/invalid token -> 401; a device of another tenant ->
 //                    {"device":null}; each service missing from the token -> that section null plus
 //                    the recorded AUTH_NOT_AUTHORIZED error; $since/$until filter the events.
+//                    Find devices: the catalogs come from the recorded first pages (filtered by
+//                    $search); every device of the tenant has the events of the recorded timeline,
+//                    so an item's device set is all of them or none; lookups page and honour
+//                    $deviceIds, with the matching events.
 //   full | denied | denied-carol | outage-stop | outage-pause | cross-tenant | directory-down
 //                    the recorded dev-00001 response verbatim (outage-pause answers after 5 s, like
-//                    the gateway's subgraph timeout).
+//                    the gateway's subgraph timeout). Find devices in these modes: outage-* degrade
+//                    the patch lookup, directory-down degrades every lookup, the rest behave as auto.
 //   unauthenticated  401 with an empty body.
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -79,6 +84,191 @@ function search(user, { search, first = 25, offset = 0 }) {
   };
 }
 
+// --- Find devices: independent catalogs and the complete server-computed search page.
+const CATALOGS = {
+  PatchCatalog: {
+    field: 'patches',
+    service: 'patch',
+    items: fixture('catalog-patches-alice.json').data.patches,
+    text: (p) => [p.kbId, p.title],
+  },
+  CveCatalog: {
+    field: 'cves',
+    service: 'vulnerability',
+    items: fixture('catalog-cves-alice.json').data.cves,
+    text: (c) => [c.id, c.title],
+  },
+  SoftwareCatalog: {
+    field: 'software',
+    service: 'softwareinstall',
+    items: fixture('catalog-software-alice.json').data.software,
+    text: (s) => [s.name, s.publisher],
+  },
+};
+// The mock serves recorded common provider responses; software options retain server ordering.
+const PROVIDERS = fixture('search-capabilities-alice.json').data.searchCapabilities.map(
+  (metadata) => ({
+    ...metadata,
+    items: fixture(`search-catalog-${metadata.category}-alice.json`).data.searchCatalog,
+  }),
+);
+function providerCapabilities(user) {
+  return {
+    data: {
+      searchCapabilities: PROVIDERS.map(({ items, ...metadata }) => ({
+        ...metadata,
+        available: !!user.services?.includes(metadata.category),
+      })),
+    },
+  };
+}
+function providerCatalog(user, { category, search, first = 25 }) {
+  const provider = PROVIDERS.find((p) => p.category === category);
+  if (!provider || !Number.isInteger(first) || first < 1 || first > 100) {
+    return {
+      data: { searchCatalog: null },
+      errors: [
+        {
+          message: 'Unknown provider or invalid catalog size',
+          path: ['searchCatalog'],
+          extensions: { code: 'BAD_USER_INPUT' },
+        },
+      ],
+    };
+  }
+  if (!user.services?.includes(provider.category)) return denied('searchCatalog');
+  const term = (search ?? '').trim().toLowerCase();
+  const items = provider.items.filter(
+    (item) =>
+      !term ||
+      [item.key, item.label, item.detail].some((text) => text.toLowerCase().includes(term)),
+  );
+  return { data: { searchCatalog: items.slice(0, first) } };
+}
+
+const denied = (field) => ({
+  errors: [{ ...DENIED_ERROR, path: [field] }],
+  data: { [field]: null },
+});
+const clamp = (first) => Math.min(Math.max(first, 1), 100);
+
+function catalogSearch(user, { field, service, items, text }, { search, first = 25 }) {
+  if (!user.services?.includes(service)) return denied(field);
+  const term = (search ?? '').trim().toLowerCase();
+  const matches = items.filter((i) => !term || text(i).some((t) => t.toLowerCase().includes(term)));
+  return { data: { [field]: matches.slice(0, clamp(first)) } };
+}
+
+const searchError = (message) => ({
+  data: { findDevices: null },
+  errors: [{ message, path: ['findDevices'], extensions: { code: 'BAD_USER_INPUT' } }],
+});
+
+// Mock server owns expression evaluation and pagination. As before, tenant devices share the
+// recorded timeline's events, so each item matches all of that tenant's sample devices or none.
+function findDevices(user, { filters = [], first = 25, offset = 0 }) {
+  if (
+    !Array.isArray(filters) ||
+    filters.length > 20 ||
+    !Number.isInteger(first) ||
+    first < 1 ||
+    first > 100 ||
+    !Number.isInteger(offset) ||
+    offset < 0
+  ) {
+    return searchError('Invalid search arguments');
+  }
+  const categories = PROVIDERS.map((provider) => provider.category);
+  if (
+    filters.some(
+      (f) =>
+        !categories.includes(f.category) ||
+        !['and', 'or'].includes(f.connector ?? 'and') ||
+        typeof f.key !== 'string' ||
+        !f.key.trim(),
+    )
+  ) {
+    return searchError('Invalid filter');
+  }
+  if (filters.some((f) => !user.services?.includes(f.category))) return denied('findDevices');
+  const base = FULL[user.tenantId]?.data.device;
+  if (!base) return { data: { findDevices: { items: [], totalCount: 0, hasNextPage: false } } };
+  const events = [
+    ...base.patchEvents.map((e) => ({
+      id: e.id,
+      source: 'patch',
+      itemKey: e.patch.id,
+      occurredAt: e.occurredAt,
+      label: e.patch.kbId,
+      title: e.patch.title,
+      subtitle: `${e.patch.kbId} · ${e.patch.vendor}`,
+      status: e.status,
+      severity: e.patch.severity,
+    })),
+    ...base.vulnerabilityEvents.map((e) => ({
+      id: e.id,
+      source: 'vulnerability',
+      itemKey: e.cve.id,
+      occurredAt: e.occurredAt,
+      label: e.cve.id,
+      title: `${e.kind} ${e.cve.id}`,
+      subtitle: e.cve.title,
+      status: e.findingState,
+      severity: e.cve.severity,
+    })),
+    ...base.installEvents.map((e) => ({
+      id: e.id,
+      source: 'softwareinstall',
+      itemKey: `${e.software.name}|${e.software.version}`,
+      occurredAt: e.occurredAt,
+      label: e.software.name,
+      title: `${e.action} ${e.software.name} ${e.software.version}`,
+      subtitle: e.software.publisher,
+      status: e.result,
+      severity: null,
+    })),
+  ];
+  const matches = (event, filter) =>
+    event.source === filter.category &&
+    (event.itemKey === filter.key ||
+      (filter.category === 'softwareinstall' &&
+        !filter.key.includes('|') &&
+        event.itemKey.startsWith(`${filter.key}|`)));
+  const groups = [];
+  for (const [i, filter] of filters.entries()) {
+    if (i === 0 || filter.connector === 'or') groups.push([filter]);
+    else groups.at(-1).push(filter);
+  }
+  const matched = groups.some((group) =>
+    group.every((filter) => events.some((event) => matches(event, filter))),
+  );
+  const devices = matched
+    ? [...catalog.values()]
+        .filter((d) => d.tenantId === user.tenantId)
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    : [];
+  const matchingEvents = events.filter((event) => filters.some((filter) => matches(event, filter)));
+  const items = devices.slice(offset, offset + first).map((device) => ({
+    device: { ...device, __typename: 'Device' },
+    events: matchingEvents.map((event) => ({
+      ...event,
+      id: event.id.replaceAll(base.id, device.id),
+      __typename: 'DeviceSearchEvent',
+    })),
+    __typename: 'DeviceSearchItem',
+  }));
+  return {
+    data: {
+      findDevices: {
+        items,
+        totalCount: devices.length,
+        hasNextPage: offset + items.length < devices.length,
+        __typename: 'FindDevicesResult',
+      },
+    },
+  };
+}
+
 function timeline(user, { id, since, until }) {
   const device = catalog.get(id);
   if (!device || device.tenantId !== user.tenantId) return { data: { device: null } };
@@ -107,6 +297,25 @@ async function graphql(req, body) {
   if (!user || requestMode === 'unauthenticated') return { status: 401 };
   const { operationName, variables = {} } = body;
   if (operationName === 'DeviceSearch') return { status: 200, json: search(user, variables) };
+  if (operationName === 'SearchCapabilities')
+    return { status: 200, json: providerCapabilities(user) };
+  if (operationName === 'SearchCatalog')
+    return { status: 200, json: providerCatalog(user, variables) };
+  if (operationName in CATALOGS) {
+    return { status: 200, json: catalogSearch(user, CATALOGS[operationName], variables) };
+  }
+  if (operationName === 'FindDevices') {
+    if (requestMode === 'directory-down')
+      return { status: 200, json: searchError('Device Directory unavailable') };
+    if (
+      variables.filters?.some((f) => f.category === 'patch') &&
+      requestMode.startsWith('outage-')
+    ) {
+      if (requestMode === 'outage-pause') await new Promise((r) => setTimeout(r, 5000));
+      return { status: 200, json: searchError('Required Patch source unavailable') };
+    }
+    return { status: 200, json: findDevices(user, variables) };
+  }
   if (operationName !== 'DeviceTimeline') {
     return {
       status: 200,

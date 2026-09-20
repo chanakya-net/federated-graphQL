@@ -116,12 +116,28 @@ services:
       start_period: 300s
     networks: [internal]
 
+  device-search:
+    build: { context: ., dockerfile: src/DeviceSearch/Dockerfile }
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:?set in .env}
+      SUBGRAPH_PATCH_URL: http://patch:8080/graphql
+      SUBGRAPH_VULNERABILITY_URL: http://vulnerability:8080/graphql
+      SUBGRAPH_SOFTWAREINSTALL_URL: http://software-install:8080/graphql
+      SUBGRAPH_TIMEOUT_SECONDS: ${SUBGRAPH_TIMEOUT_SECONDS:-5}
+    healthcheck:
+      <<: *dotnet-health
+      start_period: 30s
+    networks: [internal]
+
   fusion-gateway:
     build: { context: ., dockerfile: src/Gateway/Dockerfile }
     environment:
       ASPNETCORE_URLS: http://+:8080
       DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:?set in .env}
       SUBGRAPH_DEVICEDIRECTORY_URL: http://device-directory:8080/graphql
+      SUBGRAPH_DEVICESEARCH_URL: http://device-search:8080/graphql
+      DEVICE_SEARCH_TIMEOUT_SECONDS: ${DEVICE_SEARCH_TIMEOUT_SECONDS:-30}
       SUBGRAPH_PATCH_URL: http://patch:8080/graphql
       SUBGRAPH_VULNERABILITY_URL: http://vulnerability:8080/graphql
       SUBGRAPH_SOFTWAREINSTALL_URL: http://software-install:8080/graphql

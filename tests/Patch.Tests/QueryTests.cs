@@ -18,7 +18,20 @@ public sealed class QueryTests(MongoFixture mongo)
         "query($id: ID!, $since: DateTime, $until: DateTime) { deviceById(id: $id) { id patchEvents(since: $since, until: $until) { id occurredAt } } }";
 
     private const string PatchesQuery =
-        "query($first: Int!, $offset: Int!) { patches(first: $first, offset: $offset) { id kbId title severity vendor releasedAt } }";
+        "query($search: String, $first: Int!, $offset: Int!) { patches(search: $search, first: $first, offset: $offset) { id kbId title severity vendor releasedAt } }";
+
+    private const string FindQuery = """
+        query($ids: [ID!]!, $deviceIds: [ID!], $first: Int!, $offset: Int!) {
+          devicesWithPatches(patchIds: $ids, deviceIds: $deviceIds, first: $first, offset: $offset) {
+            totalCount
+            items { device { id } events { id deviceId occurredAt status patch { id kbId } } }
+          }
+        }
+        """;
+
+    private const string MatchesQuery = """
+        query($ids: [ID!]!) { devicesWithPatches(patchIds: $ids, first: 1) { totalCount matches { patchId deviceIds } } }
+        """;
 
     [Fact]
     public async Task Events_for_own_tenant_device()
@@ -276,9 +289,203 @@ public sealed class QueryTests(MongoFixture mongo)
         Assert.Empty(await Patches(app, first: 10, offset: 300));
     }
 
-    private static async Task<List<JsonElement>> Patches(PatchApp app, int first, int offset)
+    [Fact]
+    public async Task Patches_search_matches_kb_id_and_title_case_insensitively()
     {
-        var r = await app.QueryAsync(PatchesQuery, Tokens.Alice, new { first, offset });
+        var app = await mongo.SeededAppAsync();
+        var catalog = PatchSeedData.BuildCatalog();
+
+        // A KB fragment: every id whose kbId contains it, in id order.
+        var byKb = await Patches(app, first: 100, offset: 0, search: "kb50001");
+        var wantKb = catalog.Where(p => p.KbId.Contains("KB50001", StringComparison.OrdinalIgnoreCase)).Select(p => p.Id).ToList();
+        Assert.NotEmpty(wantKb);
+        Assert.Equal(wantKb, byKb.Select(p => p.GetProperty("id").GetString()));
+
+        // A vendor word from the title, mixed case.
+        var byTitle = await Patches(app, first: 100, offset: 0, search: "aPPle");
+        var wantTitle = catalog.Where(p => p.Title.Contains("Apple", StringComparison.OrdinalIgnoreCase)).Select(p => p.Id).Take(100).ToList();
+        Assert.NotEmpty(wantTitle);
+        Assert.Equal(wantTitle, byTitle.Select(p => p.GetProperty("id").GetString()));
+
+        // Regex metacharacters are literal, blank means no filter.
+        Assert.Empty(await Patches(app, first: 10, offset: 0, search: ".*"));
+        Assert.Equal(catalog.Take(10).Select(p => p.Id), (await Patches(app, first: 10, offset: 0, search: "   ")).Select(p => p.GetProperty("id").GetString()));
+    }
+
+    [Fact]
+    public async Task Devices_with_patches_pages_the_matching_devices_with_their_events()
+    {
+        // Two catalog patches: the devices of TenantA with an event for either, by device id, each with those events
+        // newest first (contract). The count is unpaged; the page is stable across offsets.
+        var app = await mongo.SeededAppAsync();
+        var ids = new[] { PatchSeedData.PatchId(7), PatchSeedData.PatchId(42) };
+        var expected = Expected.DevicesWith(SeedConstants.TenantA, ids);
+        Assert.InRange(expected.Count, 10, 5_000);
+
+        var page = await Find(app, Tokens.Alice, ids, first: 25, offset: 0);
+        Assert.Equal(expected.Count, page.GetProperty("totalCount").GetInt32());
+        var items = page.GetProperty("items").EnumerateArray().ToList();
+        Assert.Equal(25, items.Count);
+        for (var i = 0; i < items.Count; i++)
+        {
+            var (want, got) = (expected[i], items[i]);
+            Assert.Equal(want.DeviceId, got.GetProperty("device").GetProperty("id").GetString());
+            var events = got.GetProperty("events").EnumerateArray().ToList();
+            Assert.Equal(want.Events.Select(e => e.Id), events.Select(e => e.GetProperty("id").GetString()));
+            Assert.All(events, e => Assert.Equal(want.DeviceId, e.GetProperty("deviceId").GetString()));
+            Assert.All(events, e => Assert.Contains(e.GetProperty("patch").GetProperty("id").GetString(), ids));
+            foreach (var (w, g) in want.Events.Zip(events))
+            {
+                Assert.Equal(w.Status, g.GetProperty("status").GetString());
+                Assert.Equal(new DateTimeOffset(w.OccurredAt), g.GetProperty("occurredAt").GetDateTimeOffset());
+            }
+        }
+
+        var second = await Find(app, Tokens.Alice, ids, first: 25, offset: 25);
+        Assert.Equal(expected.Skip(25).Take(25).Select(x => x.DeviceId), DeviceIds(second));
+        var last = await Find(app, Tokens.Alice, ids, first: 100, offset: expected.Count - 3);
+        Assert.Equal(expected.TakeLast(3).Select(x => x.DeviceId), DeviceIds(last));
+        Assert.Empty(DeviceIds(await Find(app, Tokens.Alice, ids, first: 25, offset: expected.Count)));
+
+        // Duplicate and blank ids collapse; clamping as everywhere else (first 1..100, offset >= 0).
+        var messy = await Find(app, Tokens.Alice, [ids[0], ids[0], " ", ids[1]], first: 500, offset: -4);
+        Assert.Equal(expected.Count, messy.GetProperty("totalCount").GetInt32());
+        Assert.Equal(expected.Take(100).Select(x => x.DeviceId), DeviceIds(messy));
+    }
+
+    [Fact]
+    public async Task Matches_give_every_selected_patch_its_sorted_device_set()
+    {
+        // The per-patch device sets (for AND / OR across selections and subgraphs): each equals the seed's answer for
+        // that patch alone, sorted; an unknown id gets an empty set; the union is the lookup's own total.
+        var app = await mongo.SeededAppAsync();
+        var ids = new[] { PatchSeedData.PatchId(7), "patch-9999", PatchSeedData.PatchId(42) };
+
+        var r = await app.QueryAsync(MatchesQuery, Tokens.Alice, new { ids });
+
+        Assert.False(r.HasErrors, r.ToString());
+        var result = r.Data.GetProperty("devicesWithPatches");
+        var matches = result.GetProperty("matches").EnumerateArray().ToList();
+        Assert.Equal(ids, matches.Select(m => m.GetProperty("patchId").GetString()));
+        var sets = matches.ToDictionary(m => m.GetProperty("patchId").GetString()!, m => m.GetProperty("deviceIds").EnumerateArray().Select(d => d.GetString()!).ToList());
+        Assert.Empty(sets["patch-9999"]);
+        foreach (var id in new[] { ids[0], ids[2] })
+        {
+            var expected = Expected.DevicesWith(SeedConstants.TenantA, [id]).Select(x => x.DeviceId).ToList();
+            Assert.NotEmpty(expected);
+            Assert.Equal(expected, sets[id]);
+        }
+
+        Assert.Equal(sets[ids[0]].Union(sets[ids[2]]).Count(), result.GetProperty("totalCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Device_ids_restrict_the_candidates_to_a_computed_page()
+    {
+        // A client intersects two sets itself, then asks for the events of exactly those devices.
+        var app = await mongo.SeededAppAsync();
+        var a = Expected.DevicesWith(SeedConstants.TenantA, [PatchSeedData.PatchId(7)]).Select(x => x.DeviceId).ToHashSet();
+        var b = Expected.DevicesWith(SeedConstants.TenantA, [PatchSeedData.PatchId(42)]).Select(x => x.DeviceId).ToHashSet();
+        var both = a.Intersect(b).Order(StringComparer.Ordinal).ToList();
+        var neither = DeviceCatalog.ForTenant(SeedConstants.TenantA).Select(d => d.Id).First(id => !a.Contains(id) && !b.Contains(id));
+        var page = both.Concat([neither, "dev-11999"]).ToArray();   // + a TenantA device with neither patch and a TenantB device
+        Assert.InRange(both.Count, 1, 100);
+
+        var r = await app.QueryAsync(FindQuery, Tokens.Alice, new { ids = new[] { PatchSeedData.PatchId(7), PatchSeedData.PatchId(42) }, deviceIds = page, first = 100, offset = 0 });
+
+        Assert.False(r.HasErrors, r.ToString());
+        var result = r.Data.GetProperty("devicesWithPatches");
+        Assert.Equal(both.Count, result.GetProperty("totalCount").GetInt32());
+        Assert.Equal(both, DeviceIds(result));
+        Assert.All(result.GetProperty("items").EnumerateArray(), i => Assert.NotEmpty(i.GetProperty("events").EnumerateArray()));
+
+        // An empty restriction matches nothing; more than 100 ids is an error, like a too-large selection.
+        var none = await app.QueryAsync(FindQuery, Tokens.Alice, new { ids = new[] { PatchSeedData.PatchId(7) }, deviceIds = Array.Empty<string>(), first = 25, offset = 0 });
+        Assert.False(none.HasErrors, none.ToString());
+        Assert.Equal(0, none.Data.GetProperty("devicesWithPatches").GetProperty("totalCount").GetInt32());
+        var tooMany = await app.QueryAsync(FindQuery, Tokens.Alice, new { ids = new[] { PatchSeedData.PatchId(7) }, deviceIds = Enumerable.Range(0, 101).Select(DeviceCatalog.DeviceId).ToArray(), first = 25, offset = 0 });
+        Assert.Equal("SELECTION_TOO_LARGE", Code(Assert.Single(tooMany.Errors.EnumerateArray())));
+    }
+
+    [Fact]
+    public async Task Devices_with_patches_is_scoped_to_the_callers_tenant()
+    {
+        var app = await mongo.SeededAppAsync();
+        var ids = new[] { PatchSeedData.PatchId(3) };
+
+        var dave = await Find(app, Tokens.Dave, ids, first: 100, offset: 0);
+        var expectedB = Expected.DevicesWith(SeedConstants.TenantB, ids);
+        Assert.Equal(expectedB.Count, dave.GetProperty("totalCount").GetInt32());
+        Assert.Equal(expectedB.Take(100).Select(x => x.DeviceId), DeviceIds(dave));
+        Assert.All(DeviceIds(dave), id => Assert.Equal(SeedConstants.TenantB, DeviceCatalog.TenantOf(int.Parse(id[4..], System.Globalization.CultureInfo.InvariantCulture))));
+
+        // erin: TenantB, patch only. Same tenant, same answer.
+        var erin = await Find(app, Tokens.Erin, ids, first: 100, offset: 0);
+        Assert.Equal(DeviceIds(dave), DeviceIds(erin));
+    }
+
+    [Fact]
+    public async Task Devices_with_patches_empty_or_unknown_selection_matches_nothing()
+    {
+        var app = await mongo.SeededAppAsync();
+
+        foreach (var ids in new[] { Array.Empty<string>(), [""], ["patch-9999", "nope"] })
+        {
+            var r = await Find(app, Tokens.Alice, ids, first: 25, offset: 0);
+            Assert.Equal(0, r.GetProperty("totalCount").GetInt32());
+            Assert.Empty(r.GetProperty("items").EnumerateArray());
+        }
+    }
+
+    [Fact]
+    public async Task Devices_with_patches_rejects_more_than_50_ids()
+    {
+        var app = await mongo.SeededAppAsync();
+        var ids = Enumerable.Range(0, 51).Select(PatchSeedData.PatchId).ToArray();
+
+        var r = await app.QueryAsync(FindQuery, Tokens.Alice, new { ids, first = 25, offset = 0 });
+
+        Assert.Equal(HttpStatusCode.OK, r.Status);
+        Assert.Equal(JsonValueKind.Null, r.Data.GetProperty("devicesWithPatches").ValueKind);
+        var error = Assert.Single(r.Errors.EnumerateArray());
+        Assert.Equal(["devicesWithPatches"], Path(error));
+        Assert.Equal("SELECTION_TOO_LARGE", Code(error));
+        Assert.Contains("at most 50", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+
+        var exactly50 = await Find(app, Tokens.Alice, ids[..50], first: 1, offset: 0);
+        Assert.True(exactly50.GetProperty("totalCount").GetInt32() > 0);
+    }
+
+    [Fact]
+    public async Task Devices_with_patches_denied_without_patch_service()
+    {
+        // carol: TenantA, softwareinstall only. The sibling root field is unaffected.
+        var app = await mongo.SeededAppAsync();
+
+        var r = await app.QueryAsync(
+            "{ devicesWithPatches(patchIds: [\"patch-0001\"]) { totalCount } deviceById(id: \"dev-00001\") { id } }", Tokens.Carol);
+
+        Assert.Equal(HttpStatusCode.OK, r.Status);
+        Assert.Equal(JsonValueKind.Null, r.Data.GetProperty("devicesWithPatches").ValueKind);
+        Assert.Equal("dev-00001", r.Data.GetProperty("deviceById").GetProperty("id").GetString());
+        var error = Assert.Single(r.Errors.EnumerateArray());
+        Assert.Equal(["devicesWithPatches"], Path(error));
+        Assert.Equal("AUTH_NOT_AUTHORIZED", Code(error));
+    }
+
+    private static async Task<JsonElement> Find(PatchApp app, string token, string[] ids, int first, int offset)
+    {
+        var r = await app.QueryAsync(FindQuery, token, new { ids, deviceIds = (string[]?)null, first, offset });
+        Assert.False(r.HasErrors, r.ToString());
+        return r.Data.GetProperty("devicesWithPatches");
+    }
+
+    private static List<string> DeviceIds(JsonElement matches) =>
+        [.. matches.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("device").GetProperty("id").GetString()!)];
+
+    private static async Task<List<JsonElement>> Patches(PatchApp app, int first, int offset, string? search = null)
+    {
+        var r = await app.QueryAsync(PatchesQuery, Tokens.Alice, new { search, first, offset });
         Assert.False(r.HasErrors, r.ToString());
         return [.. r.Data.GetProperty("patches").EnumerateArray()];
     }

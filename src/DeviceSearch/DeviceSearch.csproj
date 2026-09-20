@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <PackageReference Include="HotChocolate.AspNetCore" />
+    <PackageReference Include="HotChocolate.AspNetCore.Authorization" />
+    <PackageReference Include="HotChocolate.AspNetCore.CommandLine" />
+    <ProjectReference Include="../Shared.Auth/Shared.Auth.csproj" />
+    <InternalsVisibleTo Include="DeviceSearch.Tests" />
+  </ItemGroup>
+</Project>

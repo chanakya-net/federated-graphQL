@@ -24,6 +24,25 @@ public sealed class QueryTests(AzuriteFixture azurite)
         }
         """;
 
+    private const string SoftwareQuery =
+        "query($search: String, $first: Int!, $offset: Int!) { software(search: $search, first: $first, offset: $offset) { name version publisher } }";
+
+    private const string FindQuery = """
+        query($software: [SoftwareKeyInput!]!, $deviceIds: [ID!], $first: Int!, $offset: Int!) {
+          devicesWithSoftware(software: $software, deviceIds: $deviceIds, first: $first, offset: $offset) {
+            totalCount
+            items { device { id } events { id deviceId occurredAt action result software { name version publisher } } }
+          }
+        }
+        """;
+
+    private const string MatchesQuery = """
+        query($software: [SoftwareKeyInput!]!) { devicesWithSoftware(software: $software, first: 1) { totalCount matches { name version deviceIds } } }
+        """;
+
+    private static readonly Lazy<SoftwareIndex> ExpectedIndex = new(() =>
+        new SoftwareIndex(SoftwareIndexBuilder.Build(DeviceCatalog.All().Select(InstallSeedData.BuildDocument))));
+
     private SoftwareInstallApp App => azurite.App;
 
     [Fact]
@@ -205,6 +224,180 @@ public sealed class QueryTests(AzuriteFixture azurite)
         var r = await App.QueryAsync(EventsQuery, Tokens.AliceSignedWithOtherKey, new { id = "dev-00001" });
 
         AssertNotAuthenticated(r);
+    }
+
+    [Fact]
+    public async Task Software_catalog_pages_distinct_products_by_name_then_version()
+    {
+        var index = ExpectedIndex.Value;
+
+        var page = await SoftwareCatalog(Tokens.Alice, search: null, first: 100, offset: 0);
+        Assert.Equal(index.Entries.Take(100).Select(e => (e.Name, e.Version, e.Publisher)), page);
+
+        var defaults = await App.QueryAsync("{ software { name version } }", Tokens.Carol);
+        Assert.False(defaults.HasErrors, defaults.ToString());
+        Assert.Equal(25, defaults.Data.GetProperty("software").GetArrayLength());
+
+        Assert.Equal(index.Entries.Skip(200).Take(10).Select(e => (e.Name, e.Version, e.Publisher)), await SoftwareCatalog(Tokens.Dave, null, first: 10, offset: 200));
+        Assert.Equal(100, (await SoftwareCatalog(Tokens.Alice, null, first: 1_000, offset: 0)).Count);
+        Assert.Single(await SoftwareCatalog(Tokens.Alice, null, first: 0, offset: 0));
+
+        var docker = await SoftwareCatalog(Tokens.Alice, search: "DOCKER", first: 100, offset: 0);
+        Assert.NotEmpty(docker);
+        Assert.Equal(index.Search("docker", 100, 0).Select(s => (s.Name, s.Version, s.Publisher)), docker);
+        Assert.All(docker, s => Assert.True(s.Name.Contains("Docker", StringComparison.OrdinalIgnoreCase) || s.Publisher.Contains("Docker", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public async Task Devices_with_software_pages_the_matching_devices_with_their_events()
+    {
+        // One product at any version plus another at one exact version: every TenantA device with an event for either,
+        // by device id, each with those events newest first (from its own blob). The count is unpaged.
+        var index = ExpectedIndex.Value;
+        var anyVersion = index.Entries.First(e => e.Name == "Git");
+        var oneVersion = index.Entries.First(e => e.Name == "Node.js");
+        var keys = new[] { new { name = "Git", version = (string?)null }, new { name = "Node.js", version = (string?)oneVersion.Version } };
+        var expected = index.DevicesFor(SeedConstants.TenantA, [new SoftwareKey("Git", null), new SoftwareKey("Node.js", oneVersion.Version)]);
+        Assert.InRange(expected.Count, 10, 5_000);
+        Assert.NotNull(anyVersion);
+
+        var page = await Find(Tokens.Alice, keys, first: 25, offset: 0);
+        Assert.Equal(expected.Count, page.GetProperty("totalCount").GetInt32());
+        var items = page.GetProperty("items").EnumerateArray().ToList();
+        Assert.Equal(expected.Take(25), items.Select(i => i.GetProperty("device").GetProperty("id").GetString()));
+        foreach (var item in items)
+        {
+            var id = item.GetProperty("device").GetProperty("id").GetString()!;
+            var seeded = InstallSeedData.BuildEventsFor(DeviceCatalog.Build(int.Parse(id[4..], System.Globalization.CultureInfo.InvariantCulture)));
+            var want = seeded
+                .Where(e => e.Software.Name == "Git" || (e.Software.Name == "Node.js" && e.Software.Version == oneVersion.Version))
+                .OrderByDescending(e => e.OccurredAt).ThenByDescending(e => e.Id, StringComparer.Ordinal)
+                .ToList();
+            var events = item.GetProperty("events").EnumerateArray().ToList();
+            Assert.NotEmpty(events);
+            Assert.Equal(want.Select(e => e.Id), events.Select(e => e.GetProperty("id").GetString()));
+            foreach (var (w, g) in want.Zip(events))
+            {
+                Assert.Equal(id, g.GetProperty("deviceId").GetString());
+                Assert.Equal(w.OccurredAt, g.GetProperty("occurredAt").GetDateTimeOffset());
+                Assert.Equal(w.Action.ToString().ToUpperInvariant(), g.GetProperty("action").GetString());
+                Assert.Equal(w.Software.Version, g.GetProperty("software").GetProperty("version").GetString());
+            }
+        }
+
+        Assert.Equal(expected.Skip(25).Take(25), DeviceIds(await Find(Tokens.Alice, keys, first: 25, offset: 25)));
+        Assert.Equal(expected.TakeLast(2), DeviceIds(await Find(Tokens.Alice, keys, first: 100, offset: expected.Count - 2)));
+        Assert.Empty(DeviceIds(await Find(Tokens.Alice, keys, first: 25, offset: expected.Count)));
+
+        // Blank names are dropped, blank versions mean any version, duplicates collapse; clamping as everywhere else.
+        var messy = await Find(Tokens.Alice, new object[] { new { name = " ", version = "1" }, new { name = "Git", version = "" }, new { name = "Node.js", version = oneVersion.Version }, keys[0] }, first: 500, offset: -1);
+        Assert.Equal(expected.Count, messy.GetProperty("totalCount").GetInt32());
+        Assert.Equal(expected.Take(100), DeviceIds(messy));
+    }
+
+    [Fact]
+    public async Task Matches_give_every_key_its_sorted_device_set_and_device_ids_restrict_the_page()
+    {
+        var index = ExpectedIndex.Value;
+        var version = index.Entries.First(e => e.Name == "Git").Version;
+        var keys = new object[] { new { name = "Git", version = (string?)null }, new { name = "Git", version = (string?)version }, new { name = "No Such", version = (string?)null } };
+
+        var r = await App.QueryAsync(MatchesQuery, Tokens.Alice, new { software = keys });
+
+        Assert.False(r.HasErrors, r.ToString());
+        var matches = r.Data.GetProperty("devicesWithSoftware").GetProperty("matches").EnumerateArray().ToList();
+        Assert.Equal(["Git|", $"Git|{version}", "No Such|"], matches.Select(m => $"{m.GetProperty("name").GetString()}|{m.GetProperty("version").GetString()}"));
+        var any = matches[0].GetProperty("deviceIds").EnumerateArray().Select(d => d.GetString()!).ToList();
+        var one = matches[1].GetProperty("deviceIds").EnumerateArray().Select(d => d.GetString()!).ToList();
+        Assert.Equal(index.DevicesFor(SeedConstants.TenantA, [new SoftwareKey("Git", null)]), any);
+        Assert.Equal(index.DevicesFor(SeedConstants.TenantA, [new SoftwareKey("Git", version)]), one);
+        Assert.True(one.Count > 0 && one.Count < any.Count);
+        Assert.Empty(matches[2].GetProperty("deviceIds").EnumerateArray());
+        Assert.Equal(any.Count, r.Data.GetProperty("devicesWithSoftware").GetProperty("totalCount").GetInt32());
+
+        // deviceIds restricts the candidates: the one-version set (plus two devices that must be ignored).
+        var page = one.Concat(["dev-06999", "dev-11999"]).Take(100).ToArray();
+        var details = await Find(Tokens.Alice, new[] { new { name = "Git", version = (string?)null } }, first: 100, offset: 0, deviceIds: page);
+        Assert.Equal(one.Take(100), DeviceIds(details));
+        Assert.Equal(one.Take(100).Count(), details.GetProperty("totalCount").GetInt32());
+        Assert.All(details.GetProperty("items").EnumerateArray(), i => Assert.Contains(i.GetProperty("events").EnumerateArray(), e => e.GetProperty("software").GetProperty("version").GetString() == version));
+    }
+
+    [Fact]
+    public async Task Devices_with_software_is_scoped_to_the_callers_tenant()
+    {
+        var index = ExpectedIndex.Value;
+        var keys = new[] { new { name = "7-Zip", version = (string?)null } };
+        var expectedB = index.DevicesFor(SeedConstants.TenantB, [new SoftwareKey("7-Zip", null)]);
+
+        var dave = await Find(Tokens.Dave, keys, first: 100, offset: 0);
+        Assert.Equal(expectedB.Count, dave.GetProperty("totalCount").GetInt32());
+        Assert.Equal(expectedB.Take(100), DeviceIds(dave));
+        Assert.All(DeviceIds(dave), id => Assert.Equal(SeedConstants.TenantB, DeviceCatalog.TenantOf(int.Parse(id[4..], System.Globalization.CultureInfo.InvariantCulture))));
+
+        var alice = await Find(Tokens.Alice, keys, first: 100, offset: 0);
+        Assert.Empty(DeviceIds(alice).Intersect(DeviceIds(dave)));
+    }
+
+    [Fact]
+    public async Task Devices_with_software_empty_or_unknown_selection_matches_nothing()
+    {
+        foreach (var keys in new object[][] { [], [new { name = "", version = (string?)null }], [new { name = "No Such Product", version = (string?)null }], [new { name = "Git", version = (string?)"0.0.0" }] })
+        {
+            var r = await Find(Tokens.Carol, keys, first: 25, offset: 0);
+            Assert.Equal(0, r.GetProperty("totalCount").GetInt32());
+            Assert.Empty(r.GetProperty("items").EnumerateArray());
+        }
+    }
+
+    [Fact]
+    public async Task Devices_with_software_rejects_more_than_50_keys()
+    {
+        var keys = Enumerable.Range(0, 51).Select(i => new { name = $"Product {i}", version = (string?)null }).ToArray();
+
+        var r = await App.QueryAsync(FindQuery, Tokens.Alice, new { software = keys, first = 25, offset = 0 });
+
+        Assert.Equal(HttpStatusCode.OK, r.Status);
+        Assert.Equal(JsonValueKind.Null, r.Data.GetProperty("devicesWithSoftware").ValueKind);
+        var error = Assert.Single(r.Errors.EnumerateArray());
+        Assert.Equal(["devicesWithSoftware"], error.GetProperty("path").EnumerateArray().Select(p => p.GetString()));
+        Assert.Equal("SELECTION_TOO_LARGE", error.GetProperty("extensions").GetProperty("code").GetString());
+    }
+
+    [Theory]
+    [InlineData("bob")]
+    [InlineData("erin")]
+    public async Task Software_and_devices_with_software_denied_without_the_service(string user)
+    {
+        var r = await App.QueryAsync(
+            "{ software { name } devicesWithSoftware(software: [{ name: \"Git\" }]) { totalCount } deviceById(id: \"dev-00001\") { id } }", Tokens.For(user));
+
+        Assert.Equal(HttpStatusCode.OK, r.Status);
+        Assert.Equal(JsonValueKind.Null, r.Data.GetProperty("software").ValueKind);
+        Assert.Equal(JsonValueKind.Null, r.Data.GetProperty("devicesWithSoftware").ValueKind);
+        Assert.Equal("dev-00001", r.Data.GetProperty("deviceById").GetProperty("id").GetString());   // sibling unaffected
+        var errors = r.Errors.EnumerateArray().ToList();
+        Assert.Equal(2, errors.Count);
+        Assert.All(errors, e => Assert.Equal("AUTH_NOT_AUTHORIZED", e.GetProperty("extensions").GetProperty("code").GetString()));
+        Assert.Equal(["devicesWithSoftware", "software"], errors.Select(e => e.GetProperty("path")[0].GetString()).Order());
+    }
+
+    private async Task<JsonElement> Find(string token, object keys, int first, int offset, string[]? deviceIds = null)
+    {
+        var r = await App.QueryAsync(FindQuery, token, new { software = keys, deviceIds, first, offset });
+        Assert.False(r.HasErrors, r.ToString());
+        return r.Data.GetProperty("devicesWithSoftware");
+    }
+
+    private static List<string> DeviceIds(JsonElement matches) =>
+        [.. matches.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("device").GetProperty("id").GetString()!)];
+
+    private async Task<List<(string Name, string Version, string Publisher)>> SoftwareCatalog(string token, string? search, int first, int offset)
+    {
+        var r = await App.QueryAsync(SoftwareQuery, token, new { search, first, offset });
+        Assert.False(r.HasErrors, r.ToString());
+        return [.. r.Data.GetProperty("software").EnumerateArray()
+            .Select(s => (s.GetProperty("name").GetString()!, s.GetProperty("version").GetString()!, s.GetProperty("publisher").GetString()!))];
     }
 
     private static void AssertNotAuthenticated(GraphQLResponse r)

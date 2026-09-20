@@ -74,7 +74,10 @@ public sealed class ExportTests(ExportFixture export) : IClassFixture<ExportFixt
         Assert.Contains("deviceById(id: ID!): Device @lookup @internal", sdl, StringComparison.Ordinal);
         // Nullable list (plan §4.2): no trailing "!" after the list.
         Assert.Contains("patchEvents(since: DateTime, until: DateTime): [PatchEvent!]\n", sdl, StringComparison.Ordinal);
-        Assert.Contains("patches(first: Int! = 25, offset: Int! = 0): [Patch!]\n", sdl, StringComparison.Ordinal);
+        Assert.Contains("patches(search: String, first: Int! = 25, offset: Int! = 0): [Patch!]\n", sdl, StringComparison.Ordinal);
+        // Hot Chocolate wraps this argument list (it is long), one argument per line.
+        Assert.Contains("devicesWithPatches(\n    patchIds: [ID!]!\n    deviceIds: [ID!]\n    first: Int! = 25\n    offset: Int! = 0\n  ): PatchDeviceMatches @authorize", sdl, StringComparison.Ordinal);
+        Assert.Contains("matches: [PatchMatch!]!", sdl, StringComparison.Ordinal);
     }
 
     [Fact]

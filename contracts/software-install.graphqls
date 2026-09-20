@@ -6,6 +6,23 @@ schema { query: Query }
 type Query {
   """Internal lookup for the gateway only. Tenant-scoped, NOT behind the service policy."""
   deviceById(id: ID!): Device @lookup @internal
+  """
+  Software catalog (contracts-v2): every distinct name / version / publisher seen in any install event, ordered
+  by name then version. `search` (optional) matches name or publisher, case-insensitive substring.
+  Requires services contains "softwareinstall".
+  NULLABLE on purpose, like the extension field: a denial on a non-null root field would null all of `data`.
+  """
+  software(search: String, first: Int! = 25, offset: Int! = 0): [Software!]
+  """
+  Reverse lookup (contracts-v2): the devices of the caller's tenant with at least one install event for any
+  of `software` (at most 50 keys; more is a field error with code SELECTION_TOO_LARGE), ordered by device
+  id, each with its events for that software newest first. The tenant comes from the token only.
+  `deviceIds` (contracts-v3, at most 100) restricts the candidates, e.g. to a page a client computed from
+  `matches`. `first` is clamped to 1..100. Requires services contains "softwareinstall".
+  NULLABLE on purpose: null + error = degraded or denied; empty `items` = no device matches.
+  The `device` of each item is the entity stub: the gateway completes it through Device Directory.
+  """
+  devicesWithSoftware(software: [SoftwareKeyInput!]!, deviceIds: [ID!], first: Int! = 25, offset: Int! = 0): SoftwareDeviceMatches
 }
 
 type Device {
@@ -34,6 +51,36 @@ type Software {
   name: String!
   version: String!
   publisher: String!
+}
+
+"""A product to look devices up by: the exact name, and optionally one exact version (null = any version)."""
+input SoftwareKeyInput {
+  name: String!
+  version: String
+}
+
+"""One page of the reverse lookup plus the unpaged count."""
+type SoftwareDeviceMatches {
+  items: [SoftwareDeviceMatch!]!
+  totalCount: Int!
+  """
+  contracts-v3: per selected key (unknown ones included, with an empty set), the sorted ids of the caller's
+  devices with an install event for it (at most 10000). Resolved only when selected.
+  """
+  matches: [SoftwareMatch!]!
+}
+
+"""One selected key echoed back (`version` null = any version) with its device set."""
+type SoftwareMatch {
+  name: String!
+  version: String
+  deviceIds: [ID!]!
+}
+
+"""A device and its install events for the selected software, newest first."""
+type SoftwareDeviceMatch {
+  device: Device!
+  events: [InstallEvent!]!
 }
 
 scalar DateTime

@@ -1,5 +1,24 @@
 # E2E report — 2026-09-18
 
+## Server-side search update — 2026-09-20
+
+The finder now uses one `FindDevices` operation. DeviceSearch calls domain APIs directly, combines full
+ID sets, sorts and paginates on the server, and requests page-scoped events. ID-only discovery skips event
+storage reads in Patch, Vulnerability, and SoftwareInstall. Fusion completes Device properties from Device Directory.
+
+Verified on the rebuilt local Compose stack:
+
+- `scripts/e2e.sh`: **28/28 passed**, 65 seconds. Includes required-source failure (even for OR), tenant and permission checks, and final search pagination.
+- **2 focused live gateway integration tests passed**: exact server AND/OR counts and page IDs checked against independent domain results, plus caller permissions and TenantB isolation.
+- Patch `patch-0128` AND CVE `CVE-2026-10166`: **7 matches**. OR: **471 matches**, 25 rows/page.
+- Browser: complete device names/events, OR second page **26–50 of471**, one proxy POST for Find (observed count4→5), no console warnings/errors.
+- **279 backend unit tests**, **125 UI tests**, production UI build, full solution build, schema composition and drift checks passed. Full Patch54/Vulnerability61 suites and SoftwareInstall47 unit tests cover the domain discovery changes.
+- The first parallel solution build hit an MSBuild child-node termination; `-m:1` completed with0 warnings/errors without source changes.
+
+Pagination uses fresh offset reads; it does not promise a snapshot across requests. Explicit search limits
+fail with errors rather than incomplete results. Earlier sections below describe the prior phase checkpoints.
+
+
 Commit: `7083819` plus the Phase 6 changes committed with this report (`scripts/e2e.sh`, `docs/`, README, and a
 one-line gateway option in `src/Gateway/Program.cs`).
 Machine: macOS 27.0 (arm64), OrbStack with Docker Engine 29.4.0 (VM: 2 CPUs, 11.7 GiB), Docker Compose v5.1.2,
@@ -183,3 +202,47 @@ No open `⚠️` is left. (`phases/00-execution-plan.md` l.9 only explains the c
   any schema). Re-run it on the signed commit.
 
 Signed: ________________, ____-__-__
+
+## Addendum, 2026-09-20: Find devices (reverse lookups)
+
+Re-run on the rebuilt stack after adding the reverse lookups (`contracts-v2`): `scripts/e2e.sh` **25/25 passed in
+53 s**, the four new scenarios being `find_by_patch_federates_via_device_directory` (732 TenantA devices with
+patch-0128 or patch-0282, every row completed with Device Directory's fields, `dev-00001` among them),
+`find_plan_completes_stubs_in_one_directory_call` (plan: Patch 22 ms, then one DeviceDirectory node 95 ms
+depending on it), `find_denied_without_the_service` (carol: `null` + `AUTH_NOT_AUTHORIZED` at
+`["devicesWithPatches"]`) and `find_scoped_to_tenant` (dave: 551 TenantB devices, none of TenantA).
+`Gateway.Tests` `StackTests` 7/7 (incl. `Reverse_lookup_federates_patch_and_device_directory`); the three subgraph
+integration suites 23 + 27 + 31 passed (Testcontainers); `scripts/check-schema-drift.sh`: no drift; UI 118/118.
+
+Manual UI check (mock gateway, then the live stack on :4300): the Find page lists the three pickers, the Patch
+picker searches its catalog as you type (debounced, "No patch matches" for an empty search), a picked item
+becomes a chip, **Find devices** writes `?patch=<id>` to the URL and renders the Patch result table with one
+chip per matching event; a row opens the device timeline and *back* restores the results.
+
+## Addendum, 2026-09-20 (later): AND / OR expressions (contracts-v3)
+
+`scripts/e2e.sh` **26/26 passed in 53 s** with `find_and_across_subgraphs_via_device_sets` (patch-0128 AND
+CVE-2026-10166: the two device sets intersected client-side give 7 devices; the page fetched with `deviceIds`
+returns exactly them, each with both a patch event and a CVE event, completed by Device Directory). Subgraph
+integration suites 25 + 28 + 32, `Gateway.Tests` stack tests, `check-schema-drift.sh` "no drift", UI 124/124
+(expression evaluator, URL round trip, page assembly for OR and AND, denial, outage, builder, paging).
+
+## Addendum, 2026-09-20: Server search with registered providers
+
+This supersedes the client-intersection behavior described above. The live finder now loads provider
+metadata/catalogs and sends one `findDevices` request for matching and pagination. Exactly three domain
+providers are registered: Patch, Vulnerability and Software Install.
+
+Validation on the rebuilt stack:
+
+- `scripts/e2e.sh`: **28/28 passed in 65 s**, including required-source outage failing the whole search.
+- Gateway non-integration suite: **44/44**; focused live search/catalog stack tests: **3/3**.
+- Backend non-integration solution run: **293 passed**; six additional provider regressions then passed in
+  the final **52/52 DeviceSearch** run (299 distinct backend tests checked across these runs).
+- UI: **130/130** tests and production build passed; common API fixtures recorded against the live gateway.
+- Schema export/composition passed; `scripts/check-schema-drift.sh` reported no drift.
+- Live browser: Patch AND Vulnerability returned **7** devices, OR returned **471**; Find increased the UI
+  proxy request count from 10 to 11. Software catalog showed both any-version and exact-version options.
+- Independent review completed with the mock software ordering mismatch fixed using recorded server options.
+
+The provider extension guide is `docs/search-providers.md`. No new domain was added.

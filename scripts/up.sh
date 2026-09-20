@@ -19,7 +19,7 @@ env_value() {
 
 if [ "$#" -eq 0 ]; then
   docker compose up --build -d
-  scripts/wait-healthy.sh postgres mongo azurite device-directory patch vulnerability software-install fusion-gateway angular-ui
+  scripts/wait-healthy.sh postgres mongo azurite device-directory patch vulnerability software-install device-search fusion-gateway angular-ui
 else
   docker compose up --build -d "$@"
   # token-generator is a one-shot; `up` already fails if it does not exit 0.

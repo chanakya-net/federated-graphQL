@@ -21,8 +21,8 @@ GW="http://localhost:$(env_value GATEWAY_PORT 5050)/graphql"
 UI="http://localhost:$(env_value UI_PORT 4200)"
 TIMEOUT_S=$(env_value SUBGRAPH_TIMEOUT_SECONDS 5)
 EPOCH="2026-09-01T00:00:00Z" # SeedConstants.Epoch (contracts/seeding.md); every seeded event is in the year before it
-SERVICES="postgres mongo azurite device-directory patch vulnerability software-install fusion-gateway angular-ui"
-TOTAL=21 # phase-6 §4 lists 20; query_plan_fans_out added (docs/version-facts.md §8, P6 row)
+SERVICES="postgres mongo azurite device-directory patch vulnerability software-install device-search fusion-gateway angular-ui"
+TOTAL=28 # Original timeline/reverse lookups plus server search, permission/tenant and required-source failure checks
 
 for tool in curl jq docker; do
   command -v "$tool" >/dev/null || { echo "e2e: '$tool' is required" >&2; exit 2; }
@@ -364,6 +364,97 @@ expect '.extensions.fusion.operationPlan.nodes as $n
     and ([$domains[].schema] | sort) == ["Patch", "SoftwareInstall", "Vulnerability"]
     and ([$domains[].dependencies == [$dd[0].id]] | all)'
 pass "$(jqb '.extensions.fusion.operationPlan | (.nodes | map("\(.schema) \(.duration | floor) ms") | join(", ")) + "; total \(.duration | floor) ms"')"
+
+# ---------------------------------------------------------------------------------------------------------------
+# Find devices (reverse lookups): the domain subgraph answers with Device stubs, the gateway completes them
+# through Device Directory in one batched lookup; access and tenant rules are the same as for the timeline.
+
+Q_FIND='query($ids: [ID!]!, $first: Int!) {
+  devicesWithPatches(patchIds: $ids, first: $first) {
+    totalCount items { device { id hostname os tenantId } events { id status patch { id kbId } } }
+  }
+}'
+find_patches() { gql "$(tok "$1")" "$Q_FIND" "$(jq -nc --argjson ids "$2" --argjson first "$3" '{ids: $ids, first: $first}')"; }
+
+begin find_by_patch_federates_via_device_directory
+# dev-00001 has events for patch-0128 and patch-0282 (docs/demo.md), so it must be in the answer, completed with
+# Device Directory's fields, and every listed event must reference a selected patch.
+find_patches alice '["patch-0128","patch-0282"]' 100
+expect_http 200
+expect '(errs | length) == 0 and .data.devicesWithPatches.totalCount > 0'
+expect '[.data.devicesWithPatches.items[] | .device.tenantId == "TenantA" and (.device.hostname | length) > 0] | all'
+expect '[.data.devicesWithPatches.items[].device.id] | index("dev-00001") != null'
+expect '[.data.devicesWithPatches.items[].events[] | .patch.id | IN("patch-0128", "patch-0282")] | all'
+expect '[.data.devicesWithPatches.items[].device.id] as $ids | $ids == ($ids | sort)'
+pass "$(jqb '"\(.data.devicesWithPatches.totalCount) devices, \(.data.devicesWithPatches.items | length) on the page"')"
+
+begin find_plan_completes_stubs_in_one_directory_call
+# The plan: Patch first, then one Device Directory node that depends on it (the batched `device(id)` lookup).
+gql "$(tok alice)" "$Q_FIND" '{"ids": ["patch-0128"], "first": 25}' 'Fusion-Operation-Plan: 1'
+expect_http 200
+expect '.extensions.fusion.operationPlan.nodes as $n
+  | ($n | map(select(.schema == "Patch"))) as $p
+  | ($n | map(select(.schema == "DeviceDirectory"))) as $dd
+  | ($n | length) == 2 and ([$n[].status == "Success"] | all)
+    and ($p | length) == 1 and ($p[0].dependencies // []) == []
+    and ($dd | length) == 1 and ($dd[0].dependencies == [$p[0].id])'
+pass "$(jqb '.extensions.fusion.operationPlan | (.nodes | map("\(.schema) \(.duration | floor) ms") | join(", "))')"
+
+begin find_denied_without_the_service
+find_patches carol '["patch-0128"]' 25
+expect_http 200
+expect '.data.devicesWithPatches == null and ([errs[] | select(.path == ["devicesWithPatches"]) | .extensions.code == "AUTH_NOT_AUTHORIZED"] | any)'
+pass
+
+begin find_scoped_to_tenant
+find_patches dave '["patch-0128","patch-0282"]' 100
+expect_http 200
+expect '(errs | length) == 0 and .data.devicesWithPatches.totalCount > 0'
+expect '[.data.devicesWithPatches.items[] | .device.tenantId == "TenantB"] | all'
+expect '[.data.devicesWithPatches.items[].device.id] | index("dev-00001") == null'
+pass "$(jqb '"\(.data.devicesWithPatches.totalCount) TenantB devices"')"
+
+begin find_and_across_subgraphs_on_server
+Q_SEARCH='query($filters: [DeviceSearchFilterInput!]!, $first: Int!, $offset: Int!) {
+  findDevices(filters: $filters, first: $first, offset: $offset) {
+    totalCount hasNextPage
+    items { device { id hostname tenantId } events { source itemKey status } }
+  }
+}'
+search_vars='{"filters":[{"category":"patch","key":"patch-0128"},{"category":"vulnerability","key":"CVE-2026-10166","connector":"and"}],"first":25,"offset":0}'
+gql "$(tok alice)" "$Q_SEARCH" "$search_vars" 'Fusion-Operation-Plan: 1'
+expect_http 200
+expect '(errs | length) == 0 and .data.findDevices.totalCount > 1'
+expect '[.data.findDevices.items[] | (.device.hostname | length) > 0 and .device.tenantId == "TenantA"
+  and ([.events[].source] | unique | sort) == ["patch", "vulnerability"]] | all'
+expect '[.data.findDevices.items[].events[].itemKey | IN("patch-0128", "CVE-2026-10166")] | all'
+expect '.extensions.fusion.operationPlan.nodes | map(.schema) | sort == ["DeviceDirectory", "DeviceSearch"]'
+search_total=$(jqb '.data.findDevices.totalCount')
+search_second=$(jqb '.data.findDevices.items[1].device.id')
+gql "$(tok alice)" "$Q_SEARCH" "$(printf '%s' "$search_vars" | jq '.first=1 | .offset=1')"
+expect_http 200
+expect '(errs | length) == 0 and .data.findDevices.totalCount == $total
+  and (.data.findDevices.items | length) == 1 and .data.findDevices.items[0].device.id == $second' \
+  --argjson total "$search_total" --arg second "$search_second"
+pass "$search_total devices; server page and gateway enrichment verified"
+
+begin find_server_permissions_and_tenant
+gql "$(tok carol)" "$Q_SEARCH" "$search_vars"
+expect_http 200
+expect '.data.findDevices == null and ([errs[] | select(.path == ["findDevices"]) | .extensions.code == "AUTH_NOT_AUTHORIZED"] | any)'
+gql "$(tok dave)" "$Q_SEARCH" '{"filters":[{"category":"patch","key":"patch-0128"}],"first":25,"offset":0}'
+expect_http 200
+expect '(errs | length) == 0 and .data.findDevices.totalCount > 0'
+expect '[.data.findDevices.items[] | .device.tenantId == "TenantB" and .device.id != "dev-00001"] | all'
+pass
+
+begin find_server_required_source_failure_is_not_partial
+outage patch stop
+gql "$(tok alice)" "$Q_SEARCH" "$(printf '%s' "$search_vars" | jq '.filters[1].connector="or"')"
+expect_http 200
+expect '.data.findDevices == null and ([errs[] | select((.path // [])[0] == "findDevices")] | length) > 0'
+outage patch restore
+pass
 
 echo "e2e: $passed/$TOTAL passed in $(( $(date +%s) - started ))s"
 [ "$passed" -eq "$TOTAL" ]

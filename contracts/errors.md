@@ -57,3 +57,28 @@ The root catalogs `patches` and `cves` follow the same field rules: `null` plus 
 
 The Apollo timeline query must use `errorPolicy: 'all'`; the default (`'none'`) discards `data` whenever
 `errors` is non-empty.
+
+## Reverse lookups and catalogs (contracts-v2)
+
+The same rules apply to the domain-level nullable root fields (`patches`, `cves`, `software`,
+`devicesWithPatches`, `devicesWithCves`, `devicesWithSoftware`), with the path prefix `["<field>"]` instead of
+`["device", <field>]`: data (even an empty list or `items: []`) is ok; `null` plus an error whose path starts
+with the field is **no access** when `extensions.code == "AUTH_NOT_AUTHORIZED"` and **unavailable** otherwise.
+With Device Directory down, the error sits deeper (`["devicesWithPatches", "items", 0, "device", "hostname"]`)
+and the nullable lookup is `null`: the prefix match still reads it as unavailable.
+
+
+## Cross-domain `findDevices`
+
+The root is nullable. A required filter source that is denied, unavailable, malformed, or over an explicit
+search work limit fails the complete search: `data.findDevices: null` and an error at `findDevices`.
+Denied sources retain `AUTH_NOT_AUTHORIZED`; other search failures use explicit search error codes.
+No source is substituted with an empty set, including inside OR. Successful zero matches return
+`{ items: [], totalCount: 0, hasNextPage: false }`. Catalogs remain independent requests.
+A Device Directory enrichment failure also surfaces at the nullable root through normal null propagation.
+
+The finder uses the common nullable `searchCatalog` root for picker options. A denied provider returns
+`null` with `AUTH_NOT_AUTHORIZED`; an unknown category or invalid catalog limit uses `BAD_USER_INPUT`.
+Downstream errors use the same search source error codes as `findDevices`. `searchCapabilities` requires
+authentication and lists registered providers with caller-specific `available` flags. A false flag does
+not replace server-side authorization; a true flag does not promise downstream availability.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # usage: scripts/compose-schema.sh [--from-contracts] [--no-export]
-#   (none)            re-export the four subgraph schemas into schemas/, then compose them
+#   (none)            re-export the five subgraph schemas into schemas/, then compose them
 #   --no-export       compose the committed schemas/ as they are
 #   --from-contracts  compose contracts/*.graphqls instead (Phase 4 part 1; no subgraph code involved)
 # Writes gateway/gateway.far, offline (no Nitro login, no network). After any subgraph schema change, run this
@@ -34,6 +34,7 @@ dotnet nitro fusion compose \
   -f "$SRC/patch.graphqls" \
   -f "$SRC/vulnerability.graphqls" \
   -f "$SRC/software-install.graphqls" \
+  -f "$SRC/device-search.graphqls" \
   -a gateway/gateway.far
 
 echo "composed gateway/gateway.far from $SRC/"

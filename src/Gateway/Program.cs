@@ -15,6 +15,9 @@ if (timeoutSeconds <= 0)
 }
 
 var timeout = TimeSpan.FromSeconds(timeoutSeconds);
+var searchTimeoutSeconds = config.GetValue(GatewaySettings.SearchTimeoutVariable, GatewaySettings.DefaultSearchTimeoutSeconds);
+if (searchTimeoutSeconds <= 0)
+    throw new InvalidOperationException($"{GatewaySettings.SearchTimeoutVariable} must be a positive number of seconds.");
 var archive = Path.GetFullPath(config[GatewaySettings.ArchiveVariable] ?? Path.Combine(AppContext.BaseDirectory, "gateway.far"));
 await GatewayArchive.EnsureUsableAsync(archive);   // Fusion itself would wait forever on a missing or corrupt archive
 
@@ -53,7 +56,8 @@ foreach (var name in SubgraphClientNames.All)
     }
 
     builder.Services
-        .AddHttpClient(name, c => c.Timeout = timeout)
+        .AddHttpClient(name, c => c.Timeout = name == SubgraphClientNames.DeviceSearch
+            ? TimeSpan.FromSeconds(searchTimeoutSeconds) : timeout)
         .AddHttpMessageHandler<ForwardAuthorizationHandler>();
     gateway.AddHttpClientConfiguration(name, new Uri(url));
 }

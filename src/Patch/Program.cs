@@ -1,3 +1,4 @@
+using HotChocolate.AspNetCore;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using SoR.Patch.Data;
@@ -35,5 +36,8 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapHealthChecks("/health");
-app.MapGraphQL();
+// HC 16 answers `variables: [...]` (variable batching) with HTTP 400 unless it is allowed here, although the exported
+// settings advertise it and the gateway uses it to complete a list of Device stubs (devicesWith*) through one call
+// (docs/version-facts.md §8). Request batching (`[{...},{...}]`) stays off.
+app.MapGraphQL().WithOptions(o => o.Batching = AllowedBatching.VariableBatching);
 await app.RunWithGraphQLCommandsAsync(args);   // enables `dotnet run -- schema export --output <file>`
