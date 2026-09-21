@@ -1,200 +1,248 @@
-# SoR — Federated GraphQL POC
+# SoR — One device, several systems, one GraphQL API
 
-A proof of concept for a federated GraphQL graph on Hot Chocolate / Fusion v2 (.NET 10): three domain
-subgraphs (Patch on MongoDB, Vulnerability on PostgreSQL, SoftwareInstall on Azurite) extend a `Device`
-owned by a Device Directory subgraph, behind one Fusion gateway, with per-tenant isolation and per-user
-service access enforced in every subgraph, and an Angular UI that tells "service down" apart from "no
-access". Two ways in: a device's merged **timeline** (Device Directory first, then the three domains), and
-**Find devices** (DeviceSearch evaluates an AND / OR expression of patches, CVEs and software on the
-server, selects the page, and retrieves matching events; Fusion completes its Device references through
-Device Directory before returning the final result).
+A device's identity, patches, vulnerabilities, and installed software usually live in different systems.
+This System of Record (SoR) proof of concept brings those views together through **one API and one UI**,
+while each service keeps ownership of its data.
 
-## Where to read
+Start with a device and explore its history, or start with a patch, CVE, or software product and find
+which devices match. The sample includes **12,000 devices, two tenants, and five demo users**.
 
-| Document | What |
-|---|---|
-| [`federated-graphql-poc-plan.md`](federated-graphql-poc-plan.md) | The plan (v3): what and why |
-| [`phases/00-execution-plan.md`](phases/00-execution-plan.md) | Phases, dependency graph, lanes, file ownership, operating rules |
-| `phases/phase-*.md` | One implementation spec per phase |
-| [`docs/version-facts.md`](docs/version-facts.md) | Pinned versions, verified commands, deviations. **Wins over the phase docs** |
-| [`contracts/`](contracts/README.md) | Frozen SDL, HTTP/env, token, error and seeding contracts (tag `contracts-v1`) |
-| [`spike/`](spike/README.md) | Phase 0 throwaway spike (not in the solution) |
-| [`docs/timeline-sources.md`](docs/timeline-sources.md) | Add timeline sources without rebuilding the UI |
-| [`docs/demo.md`](docs/demo.md) | 10-minute demo runbook: commands, expected screens, recovery per step |
-| [`docs/e2e-report.md`](docs/e2e-report.md) | Phase 6 end-to-end report: fresh-clone timing, scripted scenarios, manual UI checklist |
+## What can this POC do?
 
-## Prerequisites
+| Try this                                     | What it demonstrates                                                                                                                                                                      |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Browse devices and open a timeline**       | Device identity from Device Directory, combined with patch, vulnerability, and software events from three independent services.                                                           |
+| **Filter the timeline and inspect an event** | Date ranges, source/status/text filters, and details supplied by the owning service.                                                                                                      |
+| **Find devices across domains**              | Queries such as “devices with this patch **AND** this CVE.” The server combines matches, sorts, and paginates; the browser receives the final page. **AND** takes precedence over **OR**. |
+| **Switch demo users**                        | Tenant isolation and service permissions enforced on the server. A user cannot reveal another tenant's devices by changing the URL.                                                       |
+| **Stop a domain service**                    | The timeline keeps healthy sections visible and distinguishes **unavailable** from **no access**.                                                                                         |
+| **Add a compatible timeline source**         | New event types, labels, filters, and detail rows appear from server metadata, with **no UI code change or redeployment**.                                                                |
+| **Inspect the GraphQL execution plan**       | The embedded Nitro IDE shows how one client query becomes calls to several services.                                                                                                      |
 
-- **.NET SDK 10.0.400** or a later 10.0 feature band (`global.json`, `rollForward: latestFeature`).
-- **Docker** (Docker Desktop or equivalent): the compose stack and the Testcontainers integration tests.
-- **Node.js** (current LTS) for the Angular UI in `ui/`.
-- `dotnet tool restore` installs the pinned Nitro CLI (`dotnet nitro`) used for offline schema composition.
+This is a read/query POC with deterministic sample data and development JWTs. It demonstrates federation,
+permissions, failure handling, and extensibility; it does not ingest live product data or implement device
+management actions. Timeline sections can degrade independently. A cross-domain **search** fails if a
+required source cannot answer, so it never presents incomplete matches as a successful result.
 
-## Build and test
+## Run it and try it
+
+You need **Git, Docker with Docker Compose, and Bash** (on Windows, use WSL). Docker builds the backend
+and UI, so you do not need a host .NET or Node.js installation just to run the demo.
 
 ```bash
-scripts/build.sh          # dotnet build SoR.sln -c Release (warnings are errors)
-scripts/test.sh unit      # unit tests only, no Docker needed
-scripts/test.sh           # everything, including [Trait("Category","Integration")] tests (Docker)
+git clone https://github.com/chanakya-net/federated-graphQL.git
+cd federated-graphQL
+scripts/up.sh
 ```
 
-`scripts/test.sh` runs with `--no-build`, so run `scripts/build.sh` first.
+The first run downloads images, builds the services, and seeds their stores; allow several minutes.
+The committed `.env` contains **local-demo credentials only**.
 
-Device Directory (P2B): `dotnet test tests/DeviceDirectory.Tests -c Release` — needs Docker (Testcontainers `postgres:17-alpine`); add `--filter "Category!=Integration"` for the unit tests only.
+Open **[the UI at localhost:4200](http://localhost:4200)**, then:
 
-Patch (P3A): `dotnet test tests/Patch.Tests -c Release` — needs Docker (Testcontainers `mongo:8`); add `--filter "Category!=Integration"` for the unit tests only (no Docker).
+1. Select **Alice**, search for `dev-00001`, and open its timeline. Click an event to see its details.
+2. Switch to **Bob**: Patch and Vulnerability remain visible, while Software Install shows no access.
+3. Switch to **Dave**: that Tenant A device is not found in his Tenant B view.
+4. Return to Alice and open **Find devices**. Combine a patch and a CVE with AND or OR.
 
-Vulnerability (P3B): `dotnet test tests/Vulnerability.Tests -c Release` — needs Docker (Testcontainers `postgres:17-alpine`, seeded once per run as `vuln_user`); add `--filter "Category!=Integration"` for the unit tests only.
-
-SoftwareInstall (P3C): `dotnet test tests/SoftwareInstall.Tests -c Release` — needs Docker (Testcontainers `azurite:latest`, the compose image; a full 12 000-blob seed takes about 15 s); add `--filter "Category!=Integration"` for the unit tests only.
-
-Gateway (P4): `dotnet test tests/Gateway.Tests -c Release --filter "Category!=Integration"` — no Docker (the real gateway against in-process fake subgraphs); without the filter, `StackTests` also run against the compose stack (`scripts/up.sh` minus the UI, `scripts/demo-outage.sh patch stop|pause`), which takes minutes on a cold start.
-
-UI (P5): `cd ui && npm ci && npm test` — no Docker (Vitest + jsdom, recorded gateway responses); `npm run mock` + `npm start` serves the UI on http://localhost:4300 against a mock gateway. See [`ui/README.md`](ui/README.md).
-
-## Layout
-
-```
-src/Shared.Seeding       canonical 12 000-device catalog + deterministic RNG (every subgraph seeds from it)
-src/Shared               common normalized timeline event/detail contract
-src/Shared.Auth          dev JWT validation, ServiceAccess policy, ICallerContext, DevTokenFactory
-src/DeviceDirectory      Device owner subgraph (PostgreSQL)        — Phase 2B
-src/Patch                Patch subgraph (MongoDB)                  — Phase 3A
-src/Vulnerability        Vulnerability subgraph (PostgreSQL)       — Phase 3B
-src/SoftwareInstall      SoftwareInstall subgraph (Azurite blobs)  — Phase 3C
-src/DeviceSearch         cross-domain search coordinator (no database)
-src/Gateway              Fusion v2 gateway                         — Phase 4
-src/TokenGenerator       mints one JWT per dummy user              — Phase 2A
-tests/*.Tests            one xunit project per src project; tests/fixtures holds Phase 0 gateway responses
-contracts/               frozen contracts (Phase 1)
-schemas/, gateway/       exported SDL, composed gateway.far, and its matching timeline source catalog
-infra/, ui/              compose infrastructure (Phase 2C), Angular UI (Phase 5)
-```
-
-The services include their domain implementations; DeviceSearch coordinates reverse lookups through their APIs.
-
-## Running the stack
-
-One command, no pre-steps: `docker compose up --build`. The scripts wrap it:
+The gateway is at [localhost:5050/graphql](http://localhost:5050/graphql); its
+[Nitro IDE](http://localhost:5050/graphql/) lets you explore the schema and send queries.
+For the IDE, generate a demo token and set the `Authorization` header to `Bearer <token>`:
 
 ```bash
-scripts/up.sh                          # build + start everything, wait until healthy (cold start: several minutes)
-scripts/up.sh postgres device-directory fusion-gateway token-generator angular-ui   # a subset (+ its dependencies)
-scripts/wait-healthy.sh patch vulnerability         # wait for services (WAIT_TIMEOUT, default 420 s)
-docker compose run --rm -T token-generator --user alice   # print one user's JWT (e.g. for Nitro)
-scripts/demo-outage.sh patch stop      # outage demos: stop = connection error, pause = 5 s timeout
-scripts/demo-outage.sh patch restore   # unpause/start and wait until healthy
-scripts/reset.sh                       # docker compose down -v (asks first): wipes all seeded data
+docker compose run --rm -T token-generator --user alice
 ```
 
-| What | Where |
-|---|---|
-| UI | http://localhost:4200 (`UI_PORT`) |
-| Gateway | `POST http://localhost:5050/graphql` (`GATEWAY_PORT`; macOS reserves 5000). Needs `Authorization: Bearer <jwt>` |
-| Nitro UI | `GET http://localhost:5050/graphql/` (put the JWT in the connection's headers) |
-| Everything else | internal network only (`internal: true`, no host ports, no internet) |
-
-Compose project `sor-poc`; all values come from the committed `.env` (dev-only). Every .NET service
-image is rendered from `infra/docker/Dockerfile.template` into `src/<Name>/Dockerfile` (build
-context = repo root). Postgres roles and schemas come from `infra/postgres/init/`, which runs only on
-an empty `pgdata` volume. A healthy service is one whose `/health` answers 200 (seeding done).
-
-### Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| service stays `starting` then `unhealthy` after ~2.5 min | seeding exceeded `start_period` | raise `start_period`; check `docker compose logs <svc>` for seed progress |
-| `wget: can't connect` in healthcheck | app listening on a different port | `ASPNETCORE_URLS=http://+:8080` must be set; no `launchSettings.json` port override in Release |
-| `IDX10720` at startup | signing key shorter than 32 bytes | fix `.env` |
-| `password authentication failed for user devdir_user` | `pgdata` volume created before init script existed | `docker compose down -v` once |
-| Azurite `400 InvalidHeaderValue` | client SDK newer than emulator API | `--skipApiVersionCheck` is set; update the image |
-| gateway 401 on everything | header forwarding not configured or key mismatch | compare `DEV_JWT_SIGNING_KEY` across services in `docker compose config` |
-| `required variable ... is missing a value` | `.env` missing or incomplete | restore the committed `.env` |
-| `failed to read dockerfile: open Dockerfile: no such file or directory` | a lane has not added its `src/<Name>/Dockerfile` (or `ui/Dockerfile`) yet | start a subset: `scripts/up.sh <services...>` |
-| `bind: address already in use` on 5050 / 4200 | host port taken | set `GATEWAY_PORT` / `UI_PORT` in the shell or `.env` |
-| `token-generator` exits non-zero, `Permission denied` on `/tokens` | image runs as non-root and the fresh `tokens` volume is root-owned | create `/tokens` owned by `app` in the image before `USER app`, then `docker volume rm sor-poc_tokens` |
-| `wait-healthy.sh` reports `FAILED <svc> exited(N)` | the container crashed or was stopped | `docker compose logs <svc>`; `scripts/demo-outage.sh <svc> restore` after a demo |
-
-### Schema composition
-
-The gateway serves the composed archive `gateway/gateway.far`, built offline from the registered subgraph
-schemas and copied into the gateway image as is (the image build never composes):
+Useful controls, from the repository root:
 
 ```bash
-scripts/compose-schema.sh                  # export schemas/*.graphqls from the subgraph code, then compose FAR + timeline source catalog
-scripts/compose-schema.sh --no-export      # compose the committed schemas/ only
-scripts/check-schema-drift.sh              # re-export + compose; exit 1 if schemas/, FAR or timeline source catalog changed (CI job schema-drift)
+docker compose ps                         # Check service health
+docker compose logs fusion-gateway        # Diagnose startup or request failures
+scripts/demo-outage.sh patch stop          # Watch the timeline handle an outage
+scripts/demo-outage.sh patch restore       # Restore it, then refresh the timeline
+docker compose down                       # Stop the stack; keep its data
+scripts/reset.sh                          # Asks before deleting the seeded volumes
 ```
 
-**After any subgraph schema change, run `scripts/compose-schema.sh` and commit `schemas/` and
-`gateway/gateway.far` and `gateway/timeline-sources.json`.** `schemas/<name>-settings.json` holds each source schema's name and in-compose URL; export
-keeps it as committed. The gateway overrides the URLs from `SUBGRAPH_<NAME>_URL` and refuses to start if the
-archive or its matching timeline catalog is missing, invalid, or out of sync. Deploy these artifacts together and restart the gateway. See [timeline sources](docs/timeline-sources.md).
+If ports are busy, run `GATEWAY_PORT=5051 UI_PORT=4201 scripts/up.sh`. For a guided walkthrough,
+see the [10-minute demo](docs/demo.md).
 
-### Get a token
+## Technology and licenses
 
-Stdout is the JWT only (users in `src/TokenGenerator/users.json`); `--help` lists all options:
+These are the main components used here. Versions come from the repository; license names were checked
+against package license files and the linked upstream sources on **20 September 2026**.
+
+| Technology                                                                     | Its job in this POC                                   | License                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| C# / .NET 10, ASP.NET Core, EF Core                                            | Services, authentication, and relational data access  | MIT: [.NET](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT), [ASP.NET Core](https://github.com/dotnet/aspnetcore/blob/main/LICENSE.txt), [EF Core](https://github.com/dotnet/efcore/blob/main/LICENSE.txt)                                                                                                |
+| Hot Chocolate + Fusion **16.6.6**                                              | Domain GraphQL APIs and the federation gateway        | [MIT](https://github.com/ChilliCream/graphql-platform/blob/16.6.6/LICENSE)                                                                                                                                                                                                                                         |
+| Nitro CLI **16.6.6**                                                           | Composes schemas into the FAR file                    | [MIT](https://github.com/ChilliCream/graphql-platform/blob/16.6.6/LICENSE)                                                                                                                                                                                                                                         |
+| Embedded Nitro App **32.0.2**                                                  | Browser IDE for exploring GraphQL                     | [ChilliCream License 1.0](https://chillicream.com/licensing/chillicream-license) — separate from the CLI                                                                                                                                                                                                           |
+| Angular / Angular Material **22**, Apollo Angular **14** / Apollo Client **4** | UI components and GraphQL requests                    | MIT: [Angular](https://github.com/angular/angular/blob/main/LICENSE), [Material](https://github.com/angular/components/blob/main/LICENSE), [Apollo Angular](https://github.com/kamilkisiela/apollo-angular/blob/master/LICENSE), [Apollo Client](https://github.com/apollographql/apollo-client/blob/main/LICENSE) |
+| TypeScript **6**, RxJS **7**                                                   | UI language and asynchronous data flow                | Apache-2.0: [TypeScript](https://github.com/microsoft/TypeScript/blob/main/LICENSE.txt), [RxJS](https://github.com/ReactiveX/rxjs/blob/master/LICENSE.txt)                                                                                                                                                         |
+| PostgreSQL **17**                                                              | Device Directory and Vulnerability stores             | [PostgreSQL License](https://www.postgresql.org/about/licence/)                                                                                                                                                                                                                                                    |
+| MongoDB Community Server **8**                                                 | Patch store                                           | [SSPL-1.0](https://www.mongodb.com/legal/licensing/community-edition); the .NET driver is Apache-2.0                                                                                                                                                                                                               |
+| Azurite (`latest` image)                                                       | Local Azure Blob Storage emulator for software events | [MIT](https://github.com/Azure/Azurite/blob/main/LICENSE)                                                                                                                                                                                                                                                          |
+| Node.js **24**, Nginx (`alpine` image)                                         | Build the UI; serve it and proxy API requests         | [Node.js: MIT, with bundled third-party licenses](https://github.com/nodejs/node/blob/v24.x/LICENSE); [Nginx: BSD-2-Clause](https://github.com/nginx/nginx/blob/master/LICENSE)                                                                                                                                    |
+| Docker Engine / Compose                                                        | Run the services and stores locally                   | Apache-2.0: [Engine](https://github.com/moby/moby/blob/master/LICENSE), [Compose](https://github.com/docker/compose/blob/main/LICENSE). [Docker Desktop has separate subscription terms](https://docs.docker.com/subscription-billing/desktop-license/).                                                           |
+
+**The distinction to keep in mind:** the pinned Fusion runtime and Nitro CLI are MIT-licensed.
+The embedded Nitro IDE has its own terms, and MongoDB Server uses SSPL. They should not all be described
+as “MIT.” MIT, Apache, BSD, and PostgreSQL licenses are permissive; SSPL and the ChilliCream license have
+additional conditions described in their linked texts.
+
+This is a summary of the main dependencies, not a full dependency-license inventory. Exact package pins
+are in [Directory.Packages.props](Directory.Packages.props) and [ui/package.json](ui/package.json).
+**This repository currently has no `LICENSE` file for the POC's own source code**; dependency licenses
+do not assign one to it.
+
+## How it works
+
+A **subgraph** is simply one service's GraphQL API. In this repo, Hot Chocolate exposes each domain's
+API over its own store:
+
+| Service          | Owns / does                                    | Storage                                   |
+| ---------------- | ---------------------------------------------- | ----------------------------------------- |
+| Device Directory | Device ID, hostname, OS, IP, tenant, last seen | PostgreSQL                                |
+| Patch            | Patch catalog and patch events                 | MongoDB                                   |
+| Vulnerability    | CVEs, findings, detection/remediation history  | PostgreSQL                                |
+| Software Install | Software catalog and installation history      | Azurite blobs                             |
+| Device Search    | Combines domain matches for AND/OR searches    | Calls domain APIs; no database of its own |
+
+**Fusion** is the front door to these APIs. It uses a **FAR (Fusion Archive)** containing the combined
+schema and the metadata needed to route requests. The domain services fetch the actual records when a
+query runs. The UI talks to the gateway through Nginx and never connects to the databases.
+
+### Opening a device timeline
+
+```mermaid
+sequenceDiagram
+    participant UI as Angular UI
+    participant GW as Fusion gateway
+    participant DD as Device Directory
+    participant Domains as Patch / Vulnerability / Software
+    UI->>GW: GET /timeline-sources
+    GW-->>UI: Source fields, labels, colors, statuses
+    UI->>GW: POST /graphql — device query + JWT
+    GW->>DD: Load device identity for this tenant
+    DD-->>GW: Device
+    GW->>Domains: Fetch selected timeline fields in parallel + forward JWT
+    Domains-->>GW: Events, or errors for individual sources
+    GW-->>UI: Combined device response
+    UI->>UI: Render timeline, filters, and detail rows
+```
+
+Device Directory runs first because the other services extend its `Device`. Each domain checks the
+forwarded user's permissions and tenant. A nullable timeline field lets one denied or unavailable
+source produce a section message while the other sections still render. If Device Directory is down,
+the device page cannot load.
+
+For **Find devices**, the order changes: Fusion calls Device Search, which asks the selected domains
+for matching device IDs, evaluates the AND/OR expression, and fetches the selected page's events.
+Fusion then fills in device names and other identity fields from Device Directory. These filters match
+historical events/findings; they are not a guarantee of current installed state. Pages are fresh reads,
+not a snapshot shared across services.
+
+### From API code to FAR to deployment
+
+There are two stages: **build the gateway's map**, then **use that map to serve live queries**.
+[Composition](https://chillicream.com/docs/fusion/cli) combines the source schemas before deployment;
+it is not something the browser performs.
+
+```mermaid
+flowchart TD
+    APIs["Domain API code in src/"] --> Export["Export GraphQL schemas"]
+    Export --> SDL["schemas/*.graphqls"]
+    Settings["schemas/*-settings.json<br/>Source names and endpoints"] --> Compose["Nitro CLI composition"]
+    SDL --> Compose
+    Compose --> FAR["gateway/gateway.far"]
+    Descriptors["src/*/timeline.json<br/>Timeline presentation metadata"] --> Catalog["Validate and generate catalog"]
+    SDL --> Catalog
+    FAR -->|"SHA-256 fingerprint"| Catalog
+    Catalog --> JSON["gateway/timeline-sources.json"]
+    FAR --> Image["Build gateway image with both artifacts"]
+    JSON --> Image
+    Image --> Server["Start gateway<br/>Validate and load matching snapshot"]
+    Server --> UI["UI discovers sources and queries /graphql"]
+```
+
+Run this whenever a subgraph's GraphQL schema or timeline descriptor changes:
 
 ```bash
-set -a; . ./.env; set +a; TOKEN=$(dotnet run --project src/TokenGenerator -- --user bob)   # or: --tenant TenantB --services patch,softwareinstall
-TOKEN=$(docker compose run --rm -T token-generator --user alice)                            # same, inside the stack
+scripts/compose-schema.sh
 ```
 
-## Validate
+The script exports schemas from the .NET projects **without starting their databases**, discovers the
+schemas paired with `*-settings.json`, and runs the pinned `dotnet nitro fusion compose` command.
+It creates a fresh FAR, then validates timeline descriptors and writes the catalog with that FAR's
+SHA-256 fingerprint. Composition needs no Nitro Cloud account; the first package/tool restore may
+need internet access.
 
-`scripts/e2e.sh` checks the running stack end to end. Start it first with `scripts/up.sh`. The script needs
-bash 3.2+, curl, jq and Docker Compose:
+Review and commit **`schemas/` plus both files in `gateway/`** together. To deploy a Patch change to the
+local stack, for example:
 
 ```bash
-scripts/e2e.sh     # about 1 min; prints PASS/FAIL per scenario, ends with "e2e: 29/29 passed"
+docker compose up -d --build patch fusion-gateway
+scripts/wait-healthy.sh patch fusion-gateway
 ```
 
-It covers the generated timeline source catalog, generic event queries/details, federation (the query plan fans out after Device Directory), each demo user's access, tenant isolation,
-401s, each domain service stopped (fails fast) and paused (bounded by the 5 s timeout), Device Directory down,
-tenant-scoped search, the hidden `deviceById` lookup, `since`/`until` pushdown, and the reverse lookups (Patch
-first, then one batched Device Directory completion; denial; tenant scoping; a patch AND a CVE through the
-per-item device sets). It stops at the first failure and
-exits 1 (2 if the stack is not up). It always restores every service it stopped or paused. Ports and the
-timeout come from the shell, else `.env`. Results and the manual UI checklist are in
-[`docs/e2e-report.md`](docs/e2e-report.md).
+The gateway Dockerfile **copies the generated artifacts** into its image; it does not compose schemas.
+At startup, the gateway validates the schema/catalog pair and registers clients using
+`SUBGRAPH_<SOURCE_NAME_UPPER>_URL`. A missing URL, invalid catalog, or mismatched FAR prevents startup.
+Deploy both artifacts in the same gateway image and **recreate/restart the gateway**. This POC keeps an
+immutable snapshot for that process; replacing a file underneath a running gateway does not reload it.
 
-## Find devices (reverse lookups with AND / OR)
+CI checks schema drift, backend tests, and the UI build/tests. It does **not** currently publish images
+or deploy to a hosted environment. `scripts/compose-schema.sh --no-export` recomposes existing schema
+files; `scripts/check-schema-drift.sh` verifies that regenerated artifacts match the committed versions.
 
-The UI's second page (`/find`, toolbar "Find devices") builds an expression from backend-advertised
-catalogs, joined by **AND** / **OR** (AND binds first). One `findDevices` request returns the complete
-server-filtered page, with matched events and links to device timelines. The browser does not compute
-device sets. See [server-side cross-domain search](#server-side-cross-domain-search) below.
+### Adding another domain
 
-## Demo
+For a new **timeline source**, expose the shared `TimelineEvent`/`TimelineDetail` shape, add its
+`timeline.json` descriptor and schema settings, and configure/deploy the new service. Recompose and
+redeploy the gateway as above. On navigation, user change, or Retry, the existing UI reloads the catalog
+and builds its query and display from it. The gateway's public URL stays the same.
 
-Follow [`docs/demo.md`](docs/demo.md): about 10 minutes, with the stack started beforehand. It goes alice (one
-query, three backends, Nitro query plan), bob (Software Install denied by that service), dave (another
-tenant's device is simply not found), a domain service stopped and then paused, and optionally the Device
-Directory single point of failure.
+This works for sources that fit the existing timeline contract. A new kind of UI control or layout
+still needs UI work. Adding a **search** category is a separate backend step: implement and register a
+Device Search provider. The existing finder handles providers using its standard catalog picker.
+See the [timeline source guide](docs/timeline-sources.md) and [search provider guide](docs/search-providers.md).
 
-## Server-side cross-domain search
+## Build and test while developing
 
-The Find devices page sends one `findDevices(filters, first, offset)` operation. DeviceSearch retrieves
-complete matching IDs from the selected domain APIs, evaluates AND/OR (AND binds tighter), sorts by device ID,
-and paginates the combined result. It requests only that page's matching event details. Fusion enriches the
-returned Device references from Device Directory before responding. Catalog picker requests stay independent.
+For host builds, install **.NET SDK 10.0.400** (or a compatible later 10.0 feature band) and
+**Node.js 24.15+ in the 24.x line**. Docker is needed for integration tests. From the repository root:
 
-The search service registers providers for Patch, Vulnerability and Software Install. Each owns its filter
-keys, permission, domain queries and result mapping; the shared engine owns combination and pagination.
-The finder builds its pickers from `searchCapabilities` and loads options through `searchCatalog`.
-Capability availability reflects the caller's permissions, not a live health check. Catalogs are bounded
-typeahead results (at most `first` options), including software any-version and exact-version choices.
+```bash
+dotnet tool restore          # Pinned Nitro CLI, also used by composition tests
+scripts/build.sh             # Release backend build; restores packages
+scripts/test.sh unit         # Backend tests that do not require Docker
+scripts/test.sh              # Full backend suite, including Docker integration tests
+```
 
-To support another domain later, implement and register a provider and configure its endpoint, then rebuild
-and deploy. The engine and finder need no domain-specific edits when it uses the existing catalog control.
-A different input control still needs UI support. Federation registration remains a separate step; this
-registry does not automatically discover arbitrary subgraphs. No additional domain is included here.
-See [the provider extension guide](docs/search-providers.md) for the adapter contract and registration steps.
+The test script uses `--no-build`, so build first. The full suite includes gateway outage tests against
+the local Compose stack; run it when a brief interruption of the demo is acceptable.
 
-A required source denial, outage, malformed page, or work-limit failure returns a search error; it never
-turns into a successful empty or partial result. Matching means historical event/finding presence, preserving
-the existing filters. Offset pages are fresh reads; they are not a snapshot across services or requests.
+```bash
+cd ui
+npm ci
+npm test
+npm run build
+npm run start:live           # UI dev server on :4300, using the running :5050/:4200 stack
+```
 
-Run `dotnet test tests/DeviceSearch.Tests -c Release` for orchestration/transport regressions, and
-`dotnet test tests/Gateway.Tests -c Release --filter Category!=Integration` for gateway composition and
-entity enrichment. See [the search contract](contracts/device-search.graphqls) and [demo](docs/demo.md).
+For UI-only development without Docker, run `npm run mock` in one terminal and `npm start` in another,
+both from `ui/`. For the deployed stack, run `scripts/e2e.sh` from the repo root after `scripts/up.sh`
+(requires `curl` and `jq`). It checks federation, permissions, tenant isolation, date filters, search,
+and outages, and restores the services it stops. See the [verification report](docs/e2e-report.md).
+
+## Where to go next
+
+| If you want to…                                       | Read / open                                                                                      |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Give a short demo                                     | [Demo runbook](docs/demo.md)                                                                     |
+| Add a timeline source or search category              | [Timeline sources](docs/timeline-sources.md) · [Search providers](docs/search-providers.md)      |
+| Understand schema, auth, and error contracts          | [Contracts](contracts/README.md)                                                                 |
+| Check version-specific behavior and known limitations | [Version facts](docs/version-facts.md) — takes precedence over older phase plans                 |
+| Explore the implementation                            | `src/` for services, `ui/` for the client, `tests/` for backend tests                            |
+| Revisit the original design                           | [POC plan](federated-graphql-poc-plan.md) · [Implementation phases](phases/00-execution-plan.md) |
